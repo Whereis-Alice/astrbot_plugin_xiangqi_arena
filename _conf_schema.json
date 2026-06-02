@@ -150,6 +150,12 @@
     "default": "",
     "hint": "留空使用 AstrBot 当前 Python。只有当前 Python 不能运行 aiohttp 服务时才需要手动填写，例如 /path/to/venv/bin/python。"
   },
+  "pikafish_http_service_startup_wait_seconds": {
+    "description": "HTTP 服务启动等待秒数",
+    "type": "int",
+    "default": 6,
+    "hint": "插件托管启动服务后等待 /health 可访问的最长时间。低配服务器可调到 10-15。"
+  },
   "pikafish_http_service_pikafish_path": {
     "description": "HTTP 服务使用的 Pikafish 路径",
     "type": "string",

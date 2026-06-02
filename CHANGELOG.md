@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.1.3 - 2026-06-02
+
+### Changed
+
+- 插件托管启动 Pikafish HTTP 服务后，会在 `pikafish_http_service_startup_wait_seconds` 时间内反复等待 `/health` 可访问，减少低配服务器上“服务已启动但健康检查暂未通过”的误报。
+- `Pikafish服务` 状态命令在健康检查失败时会附带最近服务日志，方便判断端口未监听、进程退出或依赖缺失。
+
+### Added
+
+- 新增配置 `pikafish_http_service_startup_wait_seconds`，默认 6 秒，低配服务器可调到 10-15 秒。
+
 ## 3.1.2 - 2026-06-02
 
 ### Fixed

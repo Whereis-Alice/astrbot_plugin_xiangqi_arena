@@ -129,9 +129,12 @@ Pikafish服务
 
 ```json
 {
-  "pikafish_http_service_auto_start": true
+  "pikafish_http_service_auto_start": true,
+  "pikafish_http_service_startup_wait_seconds": 6
 }
 ```
+
+如果低配服务器提示健康检查暂未通过，可把 `pikafish_http_service_startup_wait_seconds` 调到 `10` 或 `15`，然后发送 `Pikafish服务` 查看最近服务日志。
 
 如果你还想保留本插件内置的本地 Pikafish 作为兜底，可以使用：
 

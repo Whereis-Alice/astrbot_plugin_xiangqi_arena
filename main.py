@@ -353,15 +353,8 @@ class XiangqiArenaPlugin(Star):
             asyncio.create_task(self._drain_pikafish_http_service_stream(self._pikafish_http_proc.stdout, "stdout")),
             asyncio.create_task(self._drain_pikafish_http_service_stream(self._pikafish_http_proc.stderr, "stderr")),
         ]
-        await asyncio.sleep(0.7)
-        if self._pikafish_http_proc.returncode is not None:
-            code = self._pikafish_http_proc.returncode
-            await self._cleanup_pikafish_http_process_refs()
-            tail = self._pikafish_http_log_tail()
-            raise RuntimeError(f"服务进程已退出，returncode={code}。{tail}")
-
-        ok, detail = await self._check_pikafish_http_health(timeout=2.0)
-        suffix = "" if ok else f"\n注意：健康检查暂未通过：{detail}"
+        ok, detail = await self._wait_for_pikafish_http_health()
+        suffix = "" if ok else f"\n注意：健康检查暂未通过：{detail}\n{self._pikafish_http_log_tail()}"
         use_hint = ""
         if "pikafish_http" not in self._engine_order():
             use_hint = "\n当前引擎链还不会使用它，请确认 engine_backend=auto/pikafish_http 且 enable_pikafish_http_engine=true。"
@@ -422,12 +415,31 @@ class XiangqiArenaPlugin(Star):
             managed = "插件托管：未运行"
         ok, detail = await self._check_pikafish_http_health(timeout=2.0)
         health = "可访问" if ok else f"不可访问：{detail}"
+        tail = "" if ok else f"\n{self._pikafish_http_log_tail()}"
         return (
             f"{managed}\n"
             f"HTTP 地址：{self._pikafish_http_url() or '未配置'}\n"
             f"健康检查：{health}\n"
             f"当前引擎链：{', '.join(self._engine_order())}"
+            f"{tail}"
         )
+
+    async def _wait_for_pikafish_http_health(self) -> tuple[bool, str]:
+        wait_seconds = self._pikafish_http_service_startup_wait_seconds()
+        deadline = time.monotonic() + wait_seconds
+        detail = "尚未开始健康检查"
+        while True:
+            proc = self._pikafish_http_proc
+            if proc is not None and proc.returncode is not None:
+                code = proc.returncode
+                await self._cleanup_pikafish_http_process_refs()
+                raise RuntimeError(f"服务进程已退出，returncode={code}。{self._pikafish_http_log_tail()}")
+            ok, detail = await self._check_pikafish_http_health(timeout=0.8)
+            if ok:
+                return True, detail
+            if time.monotonic() >= deadline:
+                return False, f"{detail}；已等待 {wait_seconds}s"
+            await asyncio.sleep(0.5)
 
     async def _check_pikafish_http_health(self, timeout: float = 2.0) -> tuple[bool, str]:
         try:
@@ -976,6 +988,9 @@ class XiangqiArenaPlugin(Star):
 
     def _pikafish_http_service_auto_start(self) -> bool:
         return self._bool_config("pikafish_http_service_auto_start", False)
+
+    def _pikafish_http_service_startup_wait_seconds(self) -> int:
+        return self._int_config("pikafish_http_service_startup_wait_seconds", 6, 1, 30)
 
     def _pikafish_http_url(self) -> str:
         return self._str_config("pikafish_http_url")

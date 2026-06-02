@@ -15,6 +15,7 @@ from astrbot.api.star import Context, Star, StarTools
 
 from .engine.ai import choose_move, describe_move
 from .engine.board import BLACK, RED, Board, Move, opponent
+from .engine.chinese_notation import CHINESE_NOTATION_PATTERN, CHINESE_NOTATION_RE, parse_chinese_notation
 from .engine.parser import ParseError, format_coord, parse_coord
 from .engine.pikafish_adapter import PikafishEngine
 from .engine.rules import IllegalMoveError, is_checkmate, is_in_check, is_stalemate
@@ -30,6 +31,7 @@ except Exception:  # pragma: no cover - AstrBot older runtimes may not expose Te
 
 MOVE_TEXT_RE = re.compile(r"^\s*([a-i][0-9])(?:(?:\s*(?:->|[-=>])\s*)|\s+)?([a-i][0-9])\s*$", re.IGNORECASE)
 BARE_MOVE_RE = r"^\s*[a-i][0-9](?:(?:\s*(?:->|[-=>])\s*)|\s+)?[a-i][0-9]\s*$"
+CHINESE_MOVE_RE = CHINESE_NOTATION_PATTERN
 MOVE_COMMAND_PREFIXES = ("走棋", "走", "move")
 PLUGIN_LOG_NAME = "xiangqi_arena"
 BOARD_CONTEXT_MARKER = "[xiangqi_arena_board_context]"
@@ -104,6 +106,11 @@ class XiangqiArenaPlugin(Star):
         try:
             from_pos, to_pos = self._parse_move(from_coord, to_coord, getattr(event, "message_str", ""))
         except ParseError as exc:
+            raw_move = self._strip_move_prefix(getattr(event, "message_str", ""))
+            if self._chinese_notation_enabled() and CHINESE_NOTATION_RE.fullmatch(re.sub(r"\s+", "", raw_move)):
+                async for result in self._handle_chinese_move(event, raw_move, quiet_no_game=False):
+                    yield result
+                return
             yield event.plain_result(str(exc))
             return
         async for result in self._handle_player_move(event, from_pos, to_pos, quiet_no_game=False):
@@ -117,6 +124,14 @@ class XiangqiArenaPlugin(Star):
         except ParseError:
             return
         async for result in self._handle_player_move(event, from_pos, to_pos, quiet_no_game=True):
+            yield result
+
+    @filter.regex(CHINESE_MOVE_RE)
+    async def move_chinese_short(self, event: AstrMessageEvent):
+        """对局中直接发送马八进七 / 炮二平五走棋。"""
+        if not self._chinese_notation_enabled():
+            return
+        async for result in self._handle_chinese_move(event, getattr(event, "message_str", ""), quiet_no_game=True):
             yield result
 
     @filter.command("棋盘", alias=["盘面"])
@@ -273,6 +288,25 @@ class XiangqiArenaPlugin(Star):
             yield result
         yield event.image_result(str(self._render_session_board(session_id, board)))
 
+    async def _handle_chinese_move(self, event: AstrMessageEvent, notation: str, quiet_no_game: bool):
+        session_id = self._session_id(event)
+        board = self.store.load(session_id)
+        if board is None:
+            if not quiet_no_game:
+                yield event.plain_result("当前没有对局，请先发送“开局”。")
+            return
+        player_color = board.player_color
+        if board.side_to_move != player_color:
+            yield event.plain_result("当前不是你的回合，请稍后再试。")
+            return
+        try:
+            move = parse_chinese_notation(notation, board, player_color)
+        except ParseError as exc:
+            yield event.plain_result(str(exc))
+            return
+        async for result in self._handle_player_move(event, move.from_pos, move.to_pos, quiet_no_game=quiet_no_game):
+            yield result
+
     async def _yield_talk(self, event: AstrMessageEvent, talk_lines: list[str] | None):
         if not talk_lines:
             return
@@ -389,6 +423,9 @@ class XiangqiArenaPlugin(Star):
 
     def _move_summary_enabled(self) -> bool:
         return self._bool_config("move_summary_enabled", True)
+
+    def _chinese_notation_enabled(self) -> bool:
+        return self._bool_config("enable_chinese_notation", True)
 
     def _turn_summary_template(self) -> str:
         return self._str_config("move_summary_template", "你走了 {player_move} 我走了 {bot_move}")

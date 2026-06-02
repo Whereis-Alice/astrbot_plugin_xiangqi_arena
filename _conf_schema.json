@@ -29,6 +29,12 @@
     "default": "你走了 {player_move}",
     "hint": "玩家一步直接结束棋局时使用。可用变量：{player_move}、{player_from}、{player_to}。"
   },
+  "enable_chinese_notation": {
+    "description": "启用中文棋谱走法",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后可直接发送马八进七、炮二平五、兵三进一等传统中文棋谱走法；关闭后只使用 a6 b6 这类坐标走法。"
+  },
   "engine_details_in_chat": {
     "description": "聊天中显示引擎细节",
     "type": "bool",

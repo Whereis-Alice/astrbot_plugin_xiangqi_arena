@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.0.9 - 2026-06-02
+
+### Added
+
+- 新增独立 aiohttp WebUI，不依赖 AstrBot Pages，可通过 `网页下棋` / `棋局链接` 生成会话专属 token 链接。
+- WebUI 支持点击棋盘走棋、新局、执黑开局、提示、悔棋和认输。
+- WebUI 与聊天端共用同一个会话存档；网页操作默认会主动同步摘要、Bot 台词和棋盘图到原聊天。
+- 新增 WebUI 配置：`webui_enabled`、`webui_host`、`webui_port`、`webui_public_base_url`、`webui_token_ttl_seconds`、`webui_notify_chat`、`webui_notify_board`。
+
+### Changed
+
+- 聊天走棋流程抽取为共享回合逻辑，后续聊天命令和 WebUI 均复用同一套规则校验、引擎降级、LLM 台词和存档更新。
+
 ## 3.0.8 - 2026-06-02
 
 ### Added

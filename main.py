@@ -5,23 +5,25 @@ import inspect
 import random
 import re
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star, StarTools
 
 from .engine.ai import choose_move, describe_move
-from .engine.board import BLACK, RED, Board, Move, opponent
+from .engine.board import BLACK, RED, Board, Move, PIECE_NAMES, opponent, piece_color
 from .engine.chinese_notation import CHINESE_NOTATION_PATTERN, CHINESE_NOTATION_RE, parse_chinese_notation
 from .engine.parser import ParseError, format_coord, parse_coord
 from .engine.pikafish_adapter import PikafishEngine
-from .engine.rules import IllegalMoveError, is_checkmate, is_in_check, is_stalemate
+from .engine.rules import IllegalMoveError, is_checkmate, is_in_check, is_stalemate, legal_moves
 from .engine.xqwlight_adapter import choose_move_xqwlight
 from .render.board_image import render_board
 from .storage.session_store import SessionStore
+from .webui.server import XiangqiWebServer
 
 try:
     from astrbot.core.agent.message import TextPart
@@ -37,6 +39,29 @@ PLUGIN_LOG_NAME = "xiangqi_arena"
 BOARD_CONTEXT_MARKER = "[xiangqi_arena_board_context]"
 
 
+@dataclass(slots=True)
+class TurnOutcome:
+    ok: bool
+    board: Board | None = None
+    error: str = ""
+    summary_text: str = ""
+    talk_lines: list[str] | None = None
+    player_move: Move | None = None
+    bot_move: Move | None = None
+    bot_reason: str = ""
+    player_in_check: bool = False
+    ended: bool = False
+
+
+class WebEventProxy:
+    def __init__(self, session_id: str):
+        self.unified_msg_origin = session_id
+        self.message_str = ""
+
+    def get_sender_id(self) -> str:
+        return self.unified_msg_origin
+
+
 class XiangqiArenaPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -49,13 +74,20 @@ class XiangqiArenaPlugin(Star):
         self._pikafish_signature: tuple[Any, ...] | None = None
         self._engine_cooldowns: dict[str, float] = {"pikafish": 0.0, "xqwlight": 0.0}
         self._llm_talk_cooldown_until = 0.0
+        self._session_locks: dict[str, asyncio.Lock] = {}
+        self._webui_server: XiangqiWebServer | None = None
+
+    async def initialize(self) -> None:
+        if self._webui_enabled():
+            await self._ensure_webui_started()
 
     @filter.command("开局", alias=["象棋", "象棋新局", "新局", "下棋"])
     async def new_game(self, event: AstrMessageEvent):
         """开始新对局，默认玩家执红。"""
         session_id = self._session_id(event)
-        board = Board.new_game(player_color=RED)
-        self.store.save(session_id, board)
+        async with self._session_lock(session_id):
+            board = Board.new_game(player_color=RED)
+            self.store.save(session_id, board)
         logger.info("%s new game: %s", PLUGIN_LOG_NAME, session_id)
         yield event.plain_result("新局开始，你执红先行。直接发 a6 b6 或 a6-b6 就能走棋。")
         yield event.image_result(str(self._render_session_board(session_id, board)))
@@ -64,26 +96,27 @@ class XiangqiArenaPlugin(Star):
     async def new_game_black(self, event: AstrMessageEvent):
         """开始新对局，玩家执黑，Bot 先手。"""
         session_id = self._session_id(event)
-        board = Board.new_game(player_color=BLACK)
-        bot_move, reason = await self._choose_bot_move(board, RED)
-        message = "新局开始，你执黑。"
-        talk_lines = None
-        if bot_move is not None:
-            board.push_state()
-            board.apply_move(bot_move.from_pos, bot_move.to_pos)
-            message += f" 我先手：{describe_move(bot_move)}"
-            if reason and self._engine_details_in_chat():
-                message += f"（{reason}）"
-            talk_lines = await self._generate_bot_talk(event, board, bot_move, reason, RED)
-            self._remember_turn(board, None, bot_move, talk_lines, False)
-            logger.info(
-                "%s bot opening move: session=%s bot=%s reason=%s",
-                PLUGIN_LOG_NAME,
-                session_id,
-                describe_move(bot_move),
-                reason,
-            )
-        self.store.save(session_id, board)
+        async with self._session_lock(session_id):
+            board = Board.new_game(player_color=BLACK)
+            bot_move, reason = await self._choose_bot_move(board, RED)
+            message = "新局开始，你执黑。"
+            talk_lines = None
+            if bot_move is not None:
+                board.push_state()
+                board.apply_move(bot_move.from_pos, bot_move.to_pos)
+                message += f" 我先手：{describe_move(bot_move)}"
+                if reason and self._engine_details_in_chat():
+                    message += f"（{reason}）"
+                talk_lines = await self._generate_bot_talk(event, board, bot_move, reason, RED)
+                self._remember_turn(board, None, bot_move, talk_lines, False)
+                logger.info(
+                    "%s bot opening move: session=%s bot=%s reason=%s",
+                    PLUGIN_LOG_NAME,
+                    session_id,
+                    describe_move(bot_move),
+                    reason,
+                )
+            self.store.save(session_id, board)
         yield event.plain_result(message)
         async for result in self._yield_talk(event, talk_lines):
             yield result
@@ -148,29 +181,36 @@ class XiangqiArenaPlugin(Star):
     async def undo(self, event: AstrMessageEvent):
         """撤销上一整个回合。"""
         session_id = self._session_id(event)
-        board = self.store.load(session_id)
-        if board is None:
-            yield event.plain_result("当前没有对局，请先发送“开局”。")
-            return
-        if len(board.history) < 2:
-            yield event.plain_result("当前没有可撤销的完整回合。")
-            return
-        board.pop_state()
-        board.pop_state()
-        self.store.save(session_id, board)
-        yield event.plain_result("已撤销上一整个回合。")
-        yield event.image_result(str(self._render_session_board(session_id, board)))
+        board = None
+        message = "已撤销上一整个回合。"
+        send_board = False
+        async with self._session_lock(session_id):
+            board = self.store.load(session_id)
+            if board is None:
+                message = "当前没有对局，请先发送“开局”。"
+            elif len(board.history) < 2:
+                message = "当前没有可撤销的完整回合。"
+            else:
+                board.pop_state()
+                board.pop_state()
+                self.store.save(session_id, board)
+                send_board = True
+        yield event.plain_result(message)
+        if send_board and board is not None:
+            yield event.image_result(str(self._render_session_board(session_id, board)))
 
     @filter.command("认输", alias=["投降", "结束"])
     async def resign(self, event: AstrMessageEvent):
         """认输并结束当前对局。"""
         session_id = self._session_id(event)
-        board = self.store.load(session_id)
-        if board is None:
-            yield event.plain_result("当前没有对局，请先发送“开局”。")
-            return
-        self.store.delete(session_id)
-        yield event.plain_result("你已认输，本局结束。")
+        message = "你已认输，本局结束。"
+        async with self._session_lock(session_id):
+            board = self.store.load(session_id)
+            if board is None:
+                message = "当前没有对局，请先发送“开局”。"
+            else:
+                self.store.delete(session_id)
+        yield event.plain_result(message)
 
     @filter.command("提示", alias=["建议"])
     async def hint(self, event: AstrMessageEvent):
@@ -206,11 +246,43 @@ class XiangqiArenaPlugin(Star):
         suffix = f"；{cooldowns}" if cooldowns else ""
         yield event.plain_result(f"你执{player}，当前轮到{side}。引擎顺序：{', '.join(self._engine_order())}{suffix}")
 
+    @filter.command("网页下棋", alias=["棋局链接", "象棋网页", "webui", "web"])
+    async def webui_link(self, event: AstrMessageEvent):
+        """生成当前会话的独立网页棋盘链接。"""
+        if not self._webui_enabled():
+            yield event.plain_result("WebUI 当前未开启，请在插件配置里打开 webui_enabled。")
+            return
+        await self._ensure_webui_started()
+        if self._webui_server is None or not self._webui_server.is_running:
+            yield event.plain_result("WebUI 启动失败，请查看 AstrBot 日志里的 xiangqi_arena webui 记录。")
+            return
+        url = self._webui_server.issue_url(self._session_id(event))
+        yield event.plain_result(f"网页棋盘：{url}\n这个链接绑定当前会话，请勿随意转发。")
+
     async def terminate(self):
+        if self._webui_server is not None:
+            await self._webui_server.stop()
+            self._webui_server = None
         if self._pikafish_engine is not None:
             await self._pikafish_engine.close()
             self._pikafish_engine = None
         return None
+
+    async def _ensure_webui_started(self) -> None:
+        if self._webui_server is not None and self._webui_server.is_running:
+            return
+        self._webui_server = XiangqiWebServer(
+            plugin=self,
+            host=self._webui_host(),
+            port=self._webui_port(),
+            public_base_url=self._webui_public_base_url(),
+            token_ttl_seconds=self._webui_token_ttl_seconds(),
+        )
+        try:
+            await self._webui_server.start()
+        except Exception as exc:
+            logger.warning("%s webui failed to start: %r", PLUGIN_LOG_NAME, exc)
+            self._webui_server = None
 
     async def _handle_player_move(
         self,
@@ -220,21 +292,48 @@ class XiangqiArenaPlugin(Star):
         quiet_no_game: bool,
     ):
         session_id = self._session_id(event)
+        outcome = await self._play_player_turn(event, session_id, from_pos, to_pos, quiet_no_game=quiet_no_game)
+        if not outcome.ok:
+            if outcome.error:
+                yield event.plain_result(outcome.error)
+            return
+        if outcome.summary_text:
+            yield event.plain_result(outcome.summary_text)
+        async for result in self._yield_talk(event, outcome.talk_lines):
+            yield result
+        if outcome.board is not None:
+            yield event.image_result(str(self._render_session_board(session_id, outcome.board)))
+
+    async def _play_player_turn(
+        self,
+        event: AstrMessageEvent | WebEventProxy,
+        session_id: str,
+        from_pos: tuple[int, int],
+        to_pos: tuple[int, int],
+        quiet_no_game: bool = False,
+    ) -> TurnOutcome:
+        async with self._session_lock(session_id):
+            return await self._play_player_turn_locked(event, session_id, from_pos, to_pos, quiet_no_game)
+
+    async def _play_player_turn_locked(
+        self,
+        event: AstrMessageEvent | WebEventProxy,
+        session_id: str,
+        from_pos: tuple[int, int],
+        to_pos: tuple[int, int],
+        quiet_no_game: bool,
+    ) -> TurnOutcome:
         board = self.store.load(session_id)
         if board is None:
-            if not quiet_no_game:
-                yield event.plain_result("当前没有对局，请先发送“开局”。")
-            return
+            return TurnOutcome(ok=False, error="" if quiet_no_game else "当前没有对局，请先发送“开局”。")
         player_color = board.player_color
         if board.side_to_move != player_color:
-            yield event.plain_result("当前不是你的回合，请稍后再试。")
-            return
+            return TurnOutcome(ok=False, error="当前不是你的回合，请稍后再试。")
 
         try:
             player_move = self._apply_player_move(board, from_pos, to_pos, player_color)
         except (IllegalMoveError, ValueError) as exc:
-            yield event.plain_result(str(exc))
-            return
+            return TurnOutcome(ok=False, error=str(exc), board=board)
 
         message_parts: list[str] = []
         player_only_summary = self._format_player_move_summary(player_move)
@@ -242,18 +341,27 @@ class XiangqiArenaPlugin(Star):
             message_parts.append(player_only_summary)
         if self._append_endgame_message(board, opponent(player_color), message_parts, winner_is_player=True):
             self.store.delete(session_id)
-            yield event.plain_result(" ".join(message_parts))
-            yield event.image_result(str(self._render_session_board(session_id, board)))
-            return
+            return TurnOutcome(
+                ok=True,
+                board=board,
+                summary_text=" ".join(message_parts).strip(),
+                player_move=player_move,
+                ended=True,
+            )
 
         bot_color = opponent(player_color)
         bot_move, bot_reason = await self._choose_bot_move(board, bot_color)
         if bot_move is None:
             message_parts.append("我无合法走法，本局结束。")
             self.store.delete(session_id)
-            yield event.plain_result(" ".join(message_parts))
-            yield event.image_result(str(self._render_session_board(session_id, board)))
-            return
+            return TurnOutcome(
+                ok=True,
+                board=board,
+                summary_text=" ".join(message_parts).strip(),
+                player_move=player_move,
+                bot_reason=bot_reason,
+                ended=True,
+            )
 
         board.push_state()
         board.apply_move(bot_move.from_pos, bot_move.to_pos)
@@ -278,15 +386,23 @@ class XiangqiArenaPlugin(Star):
         self._remember_turn(board, player_move, bot_move, talk_lines, player_in_check)
         if self._append_endgame_message(board, player_color, message_parts, winner_is_player=False):
             self.store.delete(session_id)
+            ended = True
         else:
             self.store.save(session_id, board)
+            ended = False
 
         summary_text = " ".join(message_parts).strip()
-        if summary_text:
-            yield event.plain_result(summary_text)
-        async for result in self._yield_talk(event, talk_lines):
-            yield result
-        yield event.image_result(str(self._render_session_board(session_id, board)))
+        return TurnOutcome(
+            ok=True,
+            board=board,
+            summary_text=summary_text,
+            talk_lines=talk_lines,
+            player_move=player_move,
+            bot_move=bot_move,
+            bot_reason=bot_reason,
+            player_in_check=player_in_check,
+            ended=ended,
+        )
 
     async def _handle_chinese_move(self, event: AstrMessageEvent, notation: str, quiet_no_game: bool):
         session_id = self._session_id(event)
@@ -342,6 +458,213 @@ class XiangqiArenaPlugin(Star):
     def _render_session_board(self, session_id: str, board: Board) -> Path:
         filename = session_id.replace("/", "_").replace(":", "_") + ".png"
         return render_board(board, self.board_dir / filename, self._image_scale())
+
+    def _session_lock(self, session_id: str) -> asyncio.Lock:
+        lock = self._session_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_locks[session_id] = lock
+        return lock
+
+    async def webui_get_state(self, session_id: str) -> dict[str, Any]:
+        return self._serialize_webui_state(session_id, self.store.load(session_id))
+
+    async def webui_start_game(self, session_id: str, player_color: str) -> dict[str, Any]:
+        if player_color not in {RED, BLACK}:
+            return {"ok": False, "error": "执色参数无效。", "state": await self.webui_get_state(session_id)}
+
+        talk_lines: list[str] | None = None
+        async with self._session_lock(session_id):
+            board = Board.new_game(player_color=player_color)
+            message = "新局开始，你执红先行。" if player_color == RED else "新局开始，你执黑。"
+            if player_color == BLACK:
+                bot_move, reason = await self._choose_bot_move(board, RED)
+                if bot_move is not None:
+                    board.push_state()
+                    board.apply_move(bot_move.from_pos, bot_move.to_pos)
+                    message += f" 我先手：{describe_move(bot_move)}"
+                    if reason and self._engine_details_in_chat():
+                        message += f"（{reason}）"
+                    talk_lines = await self._generate_bot_talk(WebEventProxy(session_id), board, bot_move, reason, RED)
+                    self._remember_turn(board, None, bot_move, talk_lines, False)
+                    logger.info(
+                        "%s webui bot opening move: session=%s bot=%s reason=%s",
+                        PLUGIN_LOG_NAME,
+                        session_id,
+                        describe_move(bot_move),
+                        reason,
+                    )
+            self.store.save(session_id, board)
+            state = self._serialize_webui_state(session_id, board)
+
+        await self._send_webui_chat_sync(session_id, message, board, talk_lines)
+        return {
+            "ok": True,
+            "message": message,
+            "talk": self._format_talk_lines(talk_lines),
+            "state": state,
+        }
+
+    async def webui_move(self, session_id: str, from_coord: str, to_coord: str) -> dict[str, Any]:
+        try:
+            from_pos = parse_coord(from_coord)
+            to_pos = parse_coord(to_coord)
+        except ParseError as exc:
+            return {"ok": False, "error": str(exc), "state": await self.webui_get_state(session_id)}
+
+        outcome = await self._play_player_turn(WebEventProxy(session_id), session_id, from_pos, to_pos)
+        if not outcome.ok:
+            return {
+                "ok": False,
+                "error": outcome.error,
+                "state": self._serialize_webui_state(session_id, outcome.board or self.store.load(session_id)),
+            }
+
+        await self._send_webui_chat_sync(session_id, outcome.summary_text, outcome.board, outcome.talk_lines)
+        return {
+            "ok": True,
+            "message": outcome.summary_text,
+            "talk": self._format_talk_lines(outcome.talk_lines),
+            "ended": outcome.ended,
+            "state": self._serialize_webui_state(session_id, outcome.board, ended=outcome.ended),
+        }
+
+    async def webui_undo(self, session_id: str) -> dict[str, Any]:
+        async with self._session_lock(session_id):
+            board = self.store.load(session_id)
+            if board is None:
+                return {"ok": False, "error": "当前没有对局，请先开局。", "state": self._serialize_webui_state(session_id, None)}
+            if len(board.history) < 2:
+                return {"ok": False, "error": "当前没有可撤销的完整回合。", "state": self._serialize_webui_state(session_id, board)}
+            board.pop_state()
+            board.pop_state()
+            self.store.save(session_id, board)
+            state = self._serialize_webui_state(session_id, board)
+
+        message = "网页端已撤销上一整个回合。"
+        await self._send_webui_chat_sync(session_id, message, board, None)
+        return {"ok": True, "message": message, "state": state}
+
+    async def webui_resign(self, session_id: str) -> dict[str, Any]:
+        async with self._session_lock(session_id):
+            board = self.store.load(session_id)
+            if board is None:
+                return {"ok": False, "error": "当前没有对局。", "state": self._serialize_webui_state(session_id, None)}
+            self.store.delete(session_id)
+
+        message = "网页端已认输，本局结束。"
+        await self._send_webui_chat_sync(session_id, message, board, None)
+        return {"ok": True, "message": message, "state": self._serialize_webui_state(session_id, board, ended=True)}
+
+    async def webui_hint(self, session_id: str) -> dict[str, Any]:
+        board = self.store.load(session_id)
+        if board is None:
+            return {"ok": False, "error": "当前没有对局，请先开局。", "state": self._serialize_webui_state(session_id, None)}
+        if board.side_to_move != board.player_color:
+            return {"ok": False, "error": "当前不是你的回合。", "state": self._serialize_webui_state(session_id, board)}
+        move, reason = await self._choose_bot_move(board, board.player_color)
+        if move is None:
+            return {"ok": False, "error": "当前没有合法走法。", "state": self._serialize_webui_state(session_id, board)}
+        message = f"可以考虑：{describe_move(move)}"
+        if reason and self._engine_details_in_chat():
+            message += f"（{reason}）"
+        logger.info("%s webui hint: session=%s move=%s reason=%s", PLUGIN_LOG_NAME, session_id, describe_move(move), reason)
+        return {"ok": True, "message": message, "state": self._serialize_webui_state(session_id, board)}
+
+    def _serialize_webui_state(self, session_id: str, board: Board | None, ended: bool = False) -> dict[str, Any]:
+        display_board = board or Board.new_game()
+        active = board is not None and not ended
+        player_color = display_board.player_color
+        bot_color = opponent(player_color)
+        legal: list[dict[str, Any]] = []
+        if active and display_board.side_to_move == player_color:
+            legal = [self._serialize_move(move) for move in legal_moves(display_board, player_color)]
+        status_text = "当前没有对局。" if board is None else "本局结束。" if ended else self._webui_status_text(display_board)
+        in_check = bool(board is not None and not ended and is_in_check(display_board, display_board.side_to_move))
+        return {
+            "session": self._short_session_label(session_id),
+            "game_active": active,
+            "ended": ended,
+            "status": status_text,
+            "side_to_move": display_board.side_to_move,
+            "side_to_move_label": self._side_label(display_board.side_to_move),
+            "turn_owner": "player" if active and display_board.side_to_move == player_color else "bot",
+            "player_color": player_color,
+            "player_label": self._side_label(player_color),
+            "bot_color": bot_color,
+            "bot_label": self._side_label(bot_color),
+            "in_check": in_check,
+            "can_undo": active and len(display_board.history) >= 2,
+            "last_move": None if display_board.last_move is None else self._serialize_move(display_board.last_move),
+            "legal_moves": legal,
+            "grid": [[self._serialize_piece(piece) for piece in row] for row in display_board.grid],
+            "move_log": list(display_board.move_log[-8:]),
+            "talk_log": list(display_board.talk_log[-8:]),
+            "coordinates": {
+                "files": [chr(ord("a") + index) for index in range(9)],
+                "ranks": [str(index) for index in range(10)],
+            },
+        }
+
+    def _serialize_piece(self, piece: str | None) -> dict[str, str] | None:
+        if piece is None:
+            return None
+        color = piece_color(piece) or ""
+        return {"code": piece, "name": PIECE_NAMES.get(piece, piece), "color": color, "label": self._side_label(color)}
+
+    def _serialize_move(self, move: Move) -> dict[str, Any]:
+        return {
+            "from": format_coord(move.from_pos),
+            "to": format_coord(move.to_pos),
+            "piece": self._serialize_piece(move.piece),
+            "captured": self._serialize_piece(move.captured),
+            "text": describe_move(move),
+        }
+
+    def _webui_status_text(self, board: Board) -> str:
+        side = self._side_label(board.side_to_move)
+        owner = "你" if board.side_to_move == board.player_color else "我"
+        check = "，正在被将军" if is_in_check(board, board.side_to_move) else ""
+        return f"你执{self._side_label(board.player_color)}，当前轮到{side}（{owner}走）{check}。"
+
+    def _side_label(self, color: str) -> str:
+        if color == RED:
+            return "红方"
+        if color == BLACK:
+            return "黑方"
+        return color
+
+    def _short_session_label(self, session_id: str) -> str:
+        clean = session_id.replace(":", "/")
+        return clean if len(clean) <= 28 else f"...{clean[-25:]}"
+
+    def _format_talk_lines(self, talk_lines: list[str] | None) -> list[str]:
+        return [self._format_talk_line(line) for line in talk_lines or [] if line]
+
+    async def _send_webui_chat_sync(
+        self,
+        session_id: str,
+        message: str,
+        board: Board | None,
+        talk_lines: list[str] | None,
+    ) -> None:
+        if not self._webui_notify_chat():
+            return
+        text_parts = []
+        if message:
+            text_parts.append(message)
+        text_parts.extend(self._format_talk_lines(talk_lines))
+        if not text_parts and (board is None or not self._webui_notify_board()):
+            return
+        try:
+            chain = MessageChain()
+            if text_parts:
+                chain.message("\n".join(text_parts))
+            if board is not None and self._webui_notify_board():
+                chain.file_image(str(self._render_session_board(session_id, board)))
+            await self.context.send_message(session_id, chain)
+        except Exception as exc:
+            logger.warning("%s webui chat sync failed: session=%s error=%r", PLUGIN_LOG_NAME, session_id, exc)
 
     def _bool_config(self, key: str, default: bool) -> bool:
         value = self.config.get(key, default)
@@ -420,6 +743,27 @@ class XiangqiArenaPlugin(Star):
     def _image_scale(self) -> int:
         scale = self._int_config("image_scale", 1, 1, 2)
         return 1 if scale <= 1 else 2
+
+    def _webui_enabled(self) -> bool:
+        return self._bool_config("webui_enabled", True)
+
+    def _webui_host(self) -> str:
+        return self._str_config("webui_host", "127.0.0.1") or "127.0.0.1"
+
+    def _webui_port(self) -> int:
+        return self._int_config("webui_port", 8787, 1, 65535)
+
+    def _webui_public_base_url(self) -> str:
+        return self._str_config("webui_public_base_url")
+
+    def _webui_token_ttl_seconds(self) -> int:
+        return self._int_config("webui_token_ttl_seconds", 86400, 0, 604800)
+
+    def _webui_notify_chat(self) -> bool:
+        return self._bool_config("webui_notify_chat", True)
+
+    def _webui_notify_board(self) -> bool:
+        return self._bool_config("webui_notify_board", True)
 
     def _move_summary_enabled(self) -> bool:
         return self._bool_config("move_summary_enabled", True)

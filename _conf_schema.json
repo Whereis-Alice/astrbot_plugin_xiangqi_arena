@@ -53,6 +53,48 @@
     "default": 5,
     "hint": "普通聊天注入棋局上下文时，最多附带最近几手和最近几句 Bot 台词。填 0 则只注入当前盘面和轮次。"
   },
+  "webui_enabled": {
+    "description": "启用独立 WebUI",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后插件会启动一个独立 aiohttp 网页棋盘服务。默认只监听 127.0.0.1；需要公网访问时请同时配置 webui_host 和 webui_public_base_url。"
+  },
+  "webui_host": {
+    "description": "WebUI 监听地址",
+    "type": "string",
+    "default": "127.0.0.1",
+    "hint": "默认 127.0.0.1 仅本机可访问。Linux 服务器若要外部访问，可填 0.0.0.0，并用防火墙/反代限制访问。"
+  },
+  "webui_port": {
+    "description": "WebUI 监听端口",
+    "type": "int",
+    "default": 8787,
+    "hint": "如果端口被占用，换一个空闲端口即可。"
+  },
+  "webui_public_base_url": {
+    "description": "WebUI 对外访问地址",
+    "type": "string",
+    "default": "",
+    "hint": "留空时按监听地址生成链接。反代或公网访问时填写完整地址，例如 https://example.com/xiangqi。"
+  },
+  "webui_token_ttl_seconds": {
+    "description": "WebUI 链接有效期秒数",
+    "type": "int",
+    "default": 86400,
+    "hint": "默认 1 天。填 0 表示插件运行期间不过期；插件重启后仍需重新发送“棋局链接”生成新 token。"
+  },
+  "webui_notify_chat": {
+    "description": "网页走棋同步到聊天",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，从网页走棋、新局、悔棋或认输会主动发送到原聊天会话，让群聊和网页保持同步。"
+  },
+  "webui_notify_board": {
+    "description": "网页同步时发送棋盘图",
+    "type": "bool",
+    "default": true,
+    "hint": "仅在 webui_notify_chat 开启时生效。关闭后网页操作只同步文字，不主动发送棋盘图片。"
+  },
   "enable_pikafish_engine": {
     "description": "启用 Pikafish",
     "type": "bool",

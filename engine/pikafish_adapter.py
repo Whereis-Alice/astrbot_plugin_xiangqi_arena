@@ -219,7 +219,9 @@ def _coord_to_pos(coord: str) -> tuple[int, int]:
     if len(coord) != 2 or coord[0] not in FILES or not coord[1].isdigit():
         raise PikafishError(f"坐标格式错误: {coord}")
     x = FILES.index(coord[0])
-    y = int(coord[1])
+    # Pikafish UCI ranks are counted from the red side, while this plugin's
+    # board rows are counted from the black side at the top of the rendered board.
+    y = 9 - int(coord[1])
     if y < 0 or y > 9:
         raise PikafishError(f"坐标越界: {coord}")
     return x, y

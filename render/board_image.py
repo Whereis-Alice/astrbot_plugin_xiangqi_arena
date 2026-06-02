@@ -21,7 +21,8 @@ def render_board(board: Board, output_path: Path, scale: int = 1) -> Path:
     margin_x = 90 * scale
     margin_y = 80 * scale
     width = margin_x * 2 + cell * 8
-    height = margin_y * 2 + cell * 9
+    footer_height = 40 * scale
+    height = margin_y * 2 + cell * 9 + footer_height
 
     image = Image.new("RGB", (width, height), BOARD_COLOR)
     draw = ImageDraw.Draw(image)
@@ -74,7 +75,7 @@ def render_board(board: Board, output_path: Path, scale: int = 1) -> Path:
     status = f"当前行棋: {'红方' if board.side_to_move == RED else '黑方'}"
     if board.last_move is not None:
         status += f"   最近一步: {format_coord(board.last_move.from_pos)} -> {format_coord(board.last_move.to_pos)}"
-    draw.text((30 * scale, height - 50 * scale), status, fill=LINE_COLOR, font=font_small)
+    draw.text((30 * scale, bottom + 48 * scale), status, fill=LINE_COLOR, font=font_small)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     image.save(output_path, format="PNG")

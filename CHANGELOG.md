@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.1.2 - 2026-06-02
+
+### Fixed
+
+- 修复 Pikafish HTTP 服务在 `TimeoutError()` 等异常下返回 `{"error": ""}` 的问题；现在会返回明确的错误类型、FEN、合法走法样例和超时上下文。
+- 修复 Pikafish HTTP 服务等待 `readyok` 的错误处理，避免空异常吞掉真正原因。
+
+### Changed
+
+- Pikafish HTTP 服务的 422 响应和服务日志增加更多排错信息，方便 `astrbot_plugin_chess_arena` 自定义 HTTP 引擎定位失败原因。
+
 ## 3.1.1 - 2026-06-02
 
 ### Added

@@ -266,6 +266,22 @@ Pikafish服务
 }
 ```
 
+建议把棋擂台插件的 `engine_mode` 直接设为 `custom_http`。如果保持 `auto`，当 HTTP 服务失败时它还会继续尝试自己的 `local_xqwlight`；某些 Linux/Node 环境会出现 `require is not defined in ES module scope`，这是棋擂台插件本地 xqwlight 包装脚本的 Node 模块类型问题，和 Pikafish HTTP 服务不是同一件事。
+
+如果棋擂台日志出现：
+
+```text
+custom_http failed: HTTP 422 {"ok": false, "engine": "pikafish", ...}
+```
+
+请先在本插件里发送：
+
+```text
+Pikafish服务
+```
+
+再看 422 JSON 里的 `error` / `error_type`。常见原因包括：`pikafish_path` 路径不对、Pikafish 启动后没有返回 `uciok/readyok`、`movetime` 太大导致 `bestmove` 超时，或者 Pikafish 返回了不在 `legal_moves` 里的走法。
+
 服务默认监听 `127.0.0.1:8788`，建议只给同机插件访问，不要直接暴露到公网。详细接口和 systemd 示例见 [tools/pikafish_http_service/README.md](tools/pikafish_http_service/README.md)。
 
 ## xqwlight 优化

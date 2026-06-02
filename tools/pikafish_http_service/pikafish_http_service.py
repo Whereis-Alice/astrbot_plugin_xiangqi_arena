@@ -71,6 +71,7 @@ class PikafishUciEngine:
                 best_line, lines = await self._read_until(
                     lambda line: line.startswith("bestmove"),
                     timeout=effective_timeout / 1000,
+                    label="bestmove",
                 )
                 move = extract_bestmove(best_line)
                 if not move:
@@ -113,7 +114,7 @@ class PikafishUciEngine:
     async def _ensure_ready(self) -> None:
         if self.proc is not None and self.proc.returncode is None:
             await self._send("isready")
-            await self._read_until(lambda line: line == "readyok", timeout=2.0)
+            await self._read_until(lambda line: line == "readyok", timeout=2.0, label="readyok")
             return
         await self._start()
 
@@ -137,14 +138,14 @@ class PikafishUciEngine:
         )
         self._stderr_task = asyncio.create_task(self._drain_stderr())
         await self._send("uci")
-        await self._read_until(lambda line: line == "uciok", timeout=self.startup_timeout)
+        await self._read_until(lambda line: line == "uciok", timeout=self.startup_timeout, label="uciok")
         await self._setoption("Threads", str(self.threads))
         await self._setoption("Hash", str(self.hash_mb))
         await self._setoption("Move Overhead", str(self.move_overhead_ms))
         if self.eval_file:
             await self._setoption("EvalFile", self.eval_file)
         await self._send("isready")
-        await self._read_until(lambda line: line == "readyok", timeout=self.startup_timeout)
+        await self._read_until(lambda line: line == "readyok", timeout=self.startup_timeout, label="startup readyok")
 
     def _resolve_executable(self) -> str:
         candidate = Path(self.executable).expanduser()
@@ -170,7 +171,7 @@ class PikafishUciEngine:
         proc.stdin.write((command + "\n").encode("utf-8"))
         await proc.stdin.drain()
 
-    async def _read_until(self, predicate, timeout: float) -> tuple[str, list[str]]:
+    async def _read_until(self, predicate, timeout: float, label: str = "response") -> tuple[str, list[str]]:
         proc = self.proc
         if proc is None or proc.stdout is None:
             raise PikafishServiceError("Pikafish stdout is unavailable")
@@ -180,7 +181,13 @@ class PikafishUciEngine:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
-            raw = await asyncio.wait_for(proc.stdout.readline(), timeout=remaining)
+            try:
+                raw = await asyncio.wait_for(proc.stdout.readline(), timeout=remaining)
+            except asyncio.TimeoutError as exc:
+                tail = " | ".join(lines[-8:])
+                raise PikafishServiceError(
+                    f"Pikafish timed out waiting for {label} after {timeout:.1f}s: {tail or '<no output>'}"
+                ) from exc
             if not raw:
                 raise PikafishServiceError("Pikafish process exited")
             line = raw.decode("utf-8", errors="ignore").strip()
@@ -190,7 +197,7 @@ class PikafishUciEngine:
             if predicate(line):
                 return line, lines
         tail = " | ".join(lines[-8:])
-        raise PikafishServiceError(f"Pikafish response timed out: {tail or '<no output>'}")
+        raise PikafishServiceError(f"Pikafish timed out waiting for {label} after {timeout:.1f}s: {tail or '<no output>'}")
 
     async def _drain_stderr(self) -> None:
         proc = self.proc
@@ -316,10 +323,16 @@ async def handle_health(request: web.Request) -> web.Response:
 async def handle_bestmove(request: web.Request) -> web.Response:
     engine: PikafishUciEngine = request.app["engine"]
     logger: logging.Logger = request.app["logger"]
+    payload: dict[str, Any] = {}
+    fen = ""
+    legal_moves: list[str] = []
+    timeout_ms = 0
+    movetime_ms = 0
     try:
-        payload = await request.json()
-        if not isinstance(payload, dict):
+        raw_payload = await request.json()
+        if not isinstance(raw_payload, dict):
             raise PikafishServiceError("request body must be a JSON object")
+        payload = raw_payload
         fen = normalize_fen(str(payload.get("fen") or ""), str(payload.get("side") or payload.get("turn") or ""))
         legal_moves = normalize_legal_moves(payload.get("legal_moves") or payload.get("legalMoves") or [])
         timeout_ms = clamp_int(payload.get("timeout_ms"), 8000, 100, 60000)
@@ -333,11 +346,36 @@ async def handle_bestmove(request: web.Request) -> web.Response:
         result["fen"] = fen
         return web.json_response(result)
     except Exception as exc:  # noqa: BLE001 - HTTP services should return JSON errors.
-        logger.warning("bestmove failed: %r", exc)
+        error_text = format_error(exc)
+        logger.warning(
+            "bestmove failed: %s; fen=%r legal_sample=%s timeout_ms=%s movetime_ms=%s payload_keys=%s",
+            error_text,
+            fen,
+            legal_moves[:12],
+            timeout_ms,
+            movetime_ms,
+            sorted(payload.keys()),
+            exc_info=True,
+        )
         return web.json_response(
-            {"ok": False, "engine": "pikafish", "error": str(exc)},
+            {
+                "ok": False,
+                "engine": "pikafish",
+                "error": error_text,
+                "error_type": type(exc).__name__,
+                "fen": fen,
+                "legal_moves_count": len(legal_moves),
+                "legal_moves_sample": legal_moves[:12],
+            },
             status=422,
         )
+
+
+def format_error(exc: Exception) -> str:
+    text = str(exc).strip()
+    if text:
+        return text
+    return repr(exc) or type(exc).__name__
 
 
 def parse_args() -> argparse.Namespace:

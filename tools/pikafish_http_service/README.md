@@ -90,6 +90,8 @@ http://127.0.0.1:8788
 }
 ```
 
+建议 `engine_mode` 直接使用 `custom_http`。如果使用 `auto`，HTTP 服务失败后棋擂台插件还会继续尝试自己的 `local_xqwlight`；某些 Node 环境会把 `analyze.js` 当 ES module，出现 `require is not defined in ES module scope`，那是棋擂台插件本地 xqwlight 兜底的问题。
+
 棋擂台插件仍会校验：
 
 ```text
@@ -97,6 +99,8 @@ best_move in legal_moves
 ```
 
 所以服务异常不会破坏棋局，最多回退到棋擂台插件自己的后续引擎或随机合法走法。
+
+如果返回 HTTP 422，请看响应里的 `error` 和 `error_type`。新版服务会把超时、Pikafish 路径错误、`uciok/readyok` 失败、非法走法等原因写进 JSON 和服务日志。
 
 ## 给 astrbot_plugin_xiangqi_arena 使用
 

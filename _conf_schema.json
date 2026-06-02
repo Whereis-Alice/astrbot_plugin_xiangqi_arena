@@ -35,6 +35,18 @@
     "default": false,
     "hint": "默认关闭。搜索评分、引擎失败和降级原因会写入 AstrBot 日志；只有开启后才会出现在聊天回复里。"
   },
+  "chat_board_context_enabled": {
+    "description": "普通聊天注入棋局上下文",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，只要当前会话有未结束棋局，普通聊天请求也会临时带上当前局势、最近走法和 Bot 之前说过的话。"
+  },
+  "chat_board_context_max_items": {
+    "description": "普通聊天上下文记忆条数",
+    "type": "int",
+    "default": 5,
+    "hint": "普通聊天注入棋局上下文时，最多附带最近几手和最近几句 Bot 台词。填 0 则只注入当前盘面和轮次。"
+  },
   "enable_pikafish_engine": {
     "description": "启用 Pikafish",
     "type": "bool",

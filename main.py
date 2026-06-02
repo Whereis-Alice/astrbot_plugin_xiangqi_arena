@@ -10,6 +10,7 @@ from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star, StarTools
 
 from .engine.ai import choose_move, describe_move
@@ -21,11 +22,17 @@ from .engine.xqwlight_adapter import choose_move_xqwlight
 from .render.board_image import render_board
 from .storage.session_store import SessionStore
 
+try:
+    from astrbot.core.agent.message import TextPart
+except Exception:  # pragma: no cover - AstrBot older runtimes may not expose TextPart.
+    TextPart = None
+
 
 MOVE_TEXT_RE = re.compile(r"^\s*([a-i][0-9])(?:(?:\s*(?:->|[-=>])\s*)|\s+)?([a-i][0-9])\s*$", re.IGNORECASE)
 BARE_MOVE_RE = r"^\s*[a-i][0-9](?:(?:\s*(?:->|[-=>])\s*)|\s+)?[a-i][0-9]\s*$"
 MOVE_COMMAND_PREFIXES = ("走棋", "走", "move")
 PLUGIN_LOG_NAME = "xiangqi_arena"
+BOARD_CONTEXT_MARKER = "[xiangqi_arena_board_context]"
 
 
 class XiangqiArenaPlugin(Star):
@@ -79,6 +86,17 @@ class XiangqiArenaPlugin(Star):
         async for result in self._yield_talk(event, talk_lines):
             yield result
         yield event.image_result(str(self._render_session_board(session_id, board)))
+
+    @filter.on_llm_request(priority=-5)
+    async def inject_board_context(self, event: AstrMessageEvent, request: ProviderRequest) -> None:
+        """让普通聊天也能临时看到当前象棋局势。"""
+        if not self._chat_board_context_enabled():
+            return
+        board = self.store.load(self._session_id(event))
+        if board is None:
+            return
+        context_text = self._build_chat_board_context(board)
+        self._inject_request_hint(request, context_text)
 
     @filter.command("走", alias=["走棋", "move"])
     async def move(self, event: AstrMessageEvent, from_coord: str | None = None, to_coord: str | None = None):
@@ -375,6 +393,12 @@ class XiangqiArenaPlugin(Star):
     def _engine_details_in_chat(self) -> bool:
         return self._bool_config("engine_details_in_chat", False)
 
+    def _chat_board_context_enabled(self) -> bool:
+        return self._bool_config("chat_board_context_enabled", True)
+
+    def _chat_board_context_max_items(self) -> int:
+        return self._int_config("chat_board_context_max_items", 5, 0, 10)
+
     def _talk_line_template(self) -> str:
         return self._str_config("llm_talk_template", "{talk}") or "{talk}"
 
@@ -670,6 +694,75 @@ class XiangqiArenaPlugin(Star):
             lines.append("我之前说过：")
             lines.extend(f"- {item}" for item in board.talk_log[-5:])
         return "\n".join(lines) if lines else "暂无。"
+
+    def _build_chat_board_context(self, board: Board) -> str:
+        player_side = "红方" if board.player_color == RED else "黑方"
+        bot_color = opponent(board.player_color)
+        bot_side = "红方" if bot_color == RED else "黑方"
+        turn_side = "红方" if board.side_to_move == RED else "黑方"
+        turn_owner = "用户" if board.side_to_move == board.player_color else "你"
+        last_move = "暂无" if board.last_move is None else describe_move(board.last_move)
+        limit = self._chat_board_context_max_items()
+
+        lines = [
+            BOARD_CONTEXT_MARKER,
+            "以下是你和用户正在进行的中国象棋对局临时上下文。",
+            "用户普通聊天时，如果提到棋局、局势、刚才那步、轮到谁或棋子，请自然参考；如果话题无关，不要生硬转回象棋。",
+            f"用户执{player_side}，你执{bot_side}，当前轮到{turn_side}（{turn_owner}走）。",
+            f"最近一步：{last_move}。",
+        ]
+        if limit > 0 and board.move_log:
+            lines.append("最近几手：")
+            lines.extend(f"- {item}" for item in board.move_log[-limit:])
+        if limit > 0 and board.talk_log:
+            lines.append("你之前说过：")
+            lines.extend(f"- {item}" for item in board.talk_log[-limit:])
+        lines.extend(
+            [
+                "棋盘坐标：0 行是黑方底线，9 行是红方底线；a-i 为列。大写为红方，小写为黑方。",
+                "棋子字母：K帅 A仕 B相 N马 R车 C炮 P兵；k将 a士 b象 n马 r车 c炮 p卒。",
+                self._ascii_board(board),
+            ]
+        )
+        return "\n".join(lines)
+
+    def _inject_request_hint(self, request: ProviderRequest, hint_text: str) -> None:
+        if not hint_text or self._request_has_marker(request):
+            return
+
+        parts = getattr(request, "extra_user_content_parts", None)
+        if TextPart is not None and isinstance(parts, list):
+            try:
+                part = TextPart(text=hint_text)
+                mark_as_temp = getattr(part, "mark_as_temp", None)
+                if callable(mark_as_temp):
+                    part = mark_as_temp() or part
+                parts.append(part)
+                return
+            except Exception as exc:
+                logger.warning("%s board context extra part injection failed: %r", PLUGIN_LOG_NAME, exc)
+
+        try:
+            system_prompt = str(getattr(request, "system_prompt", "") or "")
+            request.system_prompt = f"{system_prompt}\n\n{hint_text}".strip() if system_prompt else hint_text
+        except Exception as exc:
+            logger.warning("%s board context system prompt injection failed: %r", PLUGIN_LOG_NAME, exc)
+
+    def _request_has_marker(self, request: ProviderRequest) -> bool:
+        for attr in ("system_prompt", "prompt"):
+            if BOARD_CONTEXT_MARKER in str(getattr(request, attr, "") or ""):
+                return True
+        parts = getattr(request, "extra_user_content_parts", None)
+        if not isinstance(parts, list):
+            return False
+        for part in parts:
+            if isinstance(part, dict):
+                text = part.get("text", "")
+            else:
+                text = getattr(part, "text", "")
+            if BOARD_CONTEXT_MARKER in str(text or ""):
+                return True
+        return False
 
     def _clean_llm_talk(self, text: str, sentence_count: int) -> list[str] | None:
         text = text.replace("\r", "\n").strip()

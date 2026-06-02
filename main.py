@@ -316,15 +316,21 @@ class XiangqiArenaPlugin(Star):
         return bool(value)
 
     def _int_config(self, key: str, default: int, minimum: int, maximum: int) -> int:
+        raw_value = self.config.get(key, default)
+        if raw_value is None or raw_value == "":
+            raw_value = default
         try:
-            value = int(self.config.get(key, default) or default)
+            value = int(raw_value)
         except (TypeError, ValueError):
             value = default
         return max(minimum, min(value, maximum))
 
     def _float_config(self, key: str, default: float, minimum: float, maximum: float) -> float:
+        raw_value = self.config.get(key, default)
+        if raw_value is None or raw_value == "":
+            raw_value = default
         try:
-            value = float(self.config.get(key, default) or default)
+            value = float(raw_value)
         except (TypeError, ValueError):
             value = default
         return max(minimum, min(value, maximum))
@@ -357,13 +363,13 @@ class XiangqiArenaPlugin(Star):
         return self._int_config("xqwlight_timeout_ms", 800, 200, 10000)
 
     def _xqwlight_failure_cooldown_seconds(self) -> int:
-        return self._int_config("xqwlight_failure_cooldown_seconds", 600, 0, 3600)
+        return self._int_config("xqwlight_failure_cooldown_seconds", 0, 0, 3600)
 
     def _xqwlight_jar_path(self) -> str | None:
         return self._str_config("xqwlight_jar_path") or None
 
     def _pikafish_failure_cooldown_seconds(self) -> int:
-        return self._int_config("pikafish_failure_cooldown_seconds", 600, 0, 3600)
+        return self._int_config("pikafish_failure_cooldown_seconds", 0, 0, 3600)
 
     def _pikafish_signature_values(self) -> tuple[Any, ...]:
         return (
@@ -412,7 +418,7 @@ class XiangqiArenaPlugin(Star):
         return self._float_config("llm_talk_timeout", 3.0, 1.0, 15.0)
 
     def _llm_talk_failure_cooldown_seconds(self) -> int:
-        return self._int_config("llm_talk_failure_cooldown_seconds", 600, 0, 3600)
+        return self._int_config("llm_talk_failure_cooldown_seconds", 0, 0, 3600)
 
     def _llm_talk_sentence_count(self) -> int:
         max_count = self._int_config("llm_talk_max_sentences", 1, 1, 3)

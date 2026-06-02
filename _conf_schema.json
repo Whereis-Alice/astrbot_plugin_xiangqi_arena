@@ -104,8 +104,8 @@
   "pikafish_failure_cooldown_seconds": {
     "description": "Pikafish 失败冷却秒数",
     "type": "int",
-    "default": 600,
-    "hint": "Pikafish 超时、崩溃或路径错误后，在这段时间内直接尝试下一个引擎。填 0 可关闭冷却。"
+    "default": 0,
+    "hint": "Pikafish 超时、崩溃或路径错误后，在这段时间内直接尝试下一个引擎。默认 0 为关闭冷却。"
   },
   "enable_xqwlight_engine": {
     "description": "启用 xqwlight 兜底",
@@ -134,8 +134,8 @@
   "xqwlight_failure_cooldown_seconds": {
     "description": "xqwlight 失败冷却秒数",
     "type": "int",
-    "default": 600,
-    "hint": "xqwlight 超时或异常后，在这段时间内直接跳过 xqwlight，避免每步都等待 Java 超时。填 0 可关闭冷却。"
+    "default": 0,
+    "hint": "xqwlight 超时或异常后，在这段时间内直接跳过 xqwlight，避免每步都等待 Java 超时。默认 0 为关闭冷却。"
   },
   "ai_depth": {
     "description": "builtin 搜索层数",
@@ -183,8 +183,8 @@
   "llm_talk_failure_cooldown_seconds": {
     "description": "回复失败冷却秒数",
     "type": "int",
-    "default": 600,
-    "hint": "回复模型超时或异常后，在这段时间内直接使用本地兜底台词，避免每步都等待模型超时。"
+    "default": 0,
+    "hint": "回复模型超时或异常后，在这段时间内直接使用本地兜底台词，避免每步都等待模型超时。默认 0 为关闭冷却。"
   },
   "llm_talk_max_sentences": {
     "description": "回复最多句数",

@@ -196,17 +196,19 @@ WEB_HTML = r"""<!doctype html>
   <style>
     :root {
       color-scheme: light;
-      --bg: #f5f7f4;
-      --panel: #ffffff;
-      --line: #26302a;
-      --muted: #66746b;
-      --text: #18211b;
-      --red: #b8262f;
-      --black: #263238;
+      --bg: #eef3f0;
+      --panel: #fbfcfa;
+      --line: #4e3318;
+      --muted: #65736c;
+      --text: #17211c;
+      --red: #b91f33;
+      --black: #3a3127;
       --accent: #1f7a63;
       --accent-weak: #dceee8;
-      --warn: #b45b26;
-      --grid: min(8.3vw, 54px);
+      --warn: #a95525;
+      --board: #f3d38d;
+      --board-deep: #b77f32;
+      --grid: min(7.2vw, 62px);
     }
 
     * { box-sizing: border-box; }
@@ -214,7 +216,9 @@ WEB_HTML = r"""<!doctype html>
     body {
       margin: 0;
       min-height: 100vh;
-      background: var(--bg);
+      background:
+        linear-gradient(180deg, rgba(31, 122, 99, .08), transparent 220px),
+        var(--bg);
       color: var(--text);
       font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
     }
@@ -223,7 +227,7 @@ WEB_HTML = r"""<!doctype html>
       font: inherit;
       color: inherit;
       border: 1px solid #c8d2cb;
-      background: #fff;
+      background: linear-gradient(180deg, #ffffff, #f8faf8);
       border-radius: 6px;
       min-height: 38px;
       padding: 0 12px;
@@ -270,77 +274,97 @@ WEB_HTML = r"""<!doctype html>
     }
 
     .board-wrap {
-      background: #fffdf7;
-      border: 1px solid #d9c9a7;
+      background:
+        linear-gradient(180deg, #fffefa, #f8f2e3);
+      border: 1px solid #d5bd8b;
       border-radius: 8px;
-      padding: 14px;
+      padding: 16px;
       overflow: auto;
+      box-shadow: 0 12px 34px rgba(57, 43, 22, .08);
     }
 
     .board-shell {
-      width: calc(var(--grid) * 11);
-      min-width: calc(var(--grid) * 11);
+      width: min(100%, calc(var(--grid) * 11.35));
+      aspect-ratio: 1000 / 1120;
       margin: 0 auto;
-      display: grid;
-      grid-template-columns: var(--grid) repeat(9, var(--grid)) var(--grid);
-      grid-template-rows: 26px repeat(10, var(--grid)) 26px;
+      position: relative;
       user-select: none;
+      min-width: 420px;
+    }
+
+    .board-svg {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      filter: drop-shadow(0 10px 14px rgba(93, 60, 20, .10));
     }
 
     .coord {
-      display: grid;
-      place-items: center;
-      color: #755d32;
-      font-size: 13px;
+      position: absolute;
+      transform: translate(-50%, -50%);
+      color: #715226;
+      font-size: clamp(12px, 1.2vw, 15px);
       line-height: 1;
+      font-weight: 600;
+      z-index: 2;
+      pointer-events: none;
     }
 
-    .cell {
-      width: var(--grid);
-      height: var(--grid);
+    .intersection {
+      width: 7.8%;
+      aspect-ratio: 1;
       border: 0;
-      border-radius: 0;
+      border-radius: 50%;
       padding: 0;
-      position: relative;
+      position: absolute;
+      transform: translate(-50%, -50%);
       display: grid;
       place-items: center;
-      background:
-        linear-gradient(#b98b42, #b98b42) center / 100% 1px no-repeat,
-        linear-gradient(90deg, #b98b42, #b98b42) center / 1px 100% no-repeat,
-        #f4d68f;
+      background: transparent;
+      z-index: 4;
     }
 
-    .cell:nth-child(odd) { background-color: #f7dfaa; }
-    .cell.selected { background-color: #d9ebdf; }
-    .cell.legal::after {
+    .intersection.selected {
+      background: rgba(31, 122, 99, .12);
+      box-shadow: 0 0 0 3px rgba(31, 122, 99, .42);
+    }
+
+    .intersection.legal::after {
       content: "";
-      width: 12px;
-      height: 12px;
+      width: 15px;
+      height: 15px;
       border-radius: 50%;
       background: var(--accent);
-      opacity: 0.78;
+      opacity: 0.86;
       position: absolute;
+      box-shadow: 0 0 0 5px rgba(31, 122, 99, .12);
     }
-    .cell.last-from, .cell.last-to { box-shadow: inset 0 0 0 3px rgba(31, 122, 99, .45); }
+    .intersection.last-from, .intersection.last-to { box-shadow: 0 0 0 3px rgba(31, 122, 99, .45); }
 
     .piece {
-      width: calc(var(--grid) - 8px);
-      height: calc(var(--grid) - 8px);
+      width: 82%;
+      height: 82%;
       border-radius: 50%;
       display: grid;
       place-items: center;
       border: 2px solid currentColor;
-      background: #fffaf0;
-      font-size: clamp(18px, 4vw, 30px);
+      background:
+        radial-gradient(circle at 32% 26%, #fffaf0 0 24%, #f4dca6 56%, #d2a665 100%);
+      font-size: clamp(20px, 3.6vw, 34px);
       font-weight: 700;
       line-height: 1;
       z-index: 1;
-      box-shadow: 0 2px 4px rgba(72, 54, 24, .18);
+      box-shadow:
+        inset 0 0 0 4px rgba(255, 255, 255, .42),
+        inset 0 0 0 9px rgba(121, 78, 24, .10),
+        0 4px 9px rgba(72, 54, 24, .26);
     }
 
     .piece.red { color: var(--red); }
     .piece.black { color: var(--black); }
-    .piece.dim { opacity: .42; }
+    .piece.dim { opacity: .68; }
 
     .side {
       display: flex;
@@ -353,6 +377,7 @@ WEB_HTML = r"""<!doctype html>
       border: 1px solid #d9e0dc;
       border-radius: 8px;
       padding: 12px;
+      box-shadow: 0 8px 18px rgba(25, 37, 30, .04);
     }
 
     .panel h2 {
@@ -403,7 +428,7 @@ WEB_HTML = r"""<!doctype html>
     }
 
     @media (max-width: 900px) {
-      :root { --grid: min(9.1vw, 48px); }
+      :root { --grid: min(8.6vw, 52px); }
       .layout { grid-template-columns: 1fr; }
       .topbar { align-items: flex-start; flex-direction: column; }
       .status { text-align: left; }
@@ -413,6 +438,7 @@ WEB_HTML = r"""<!doctype html>
     @media (max-width: 560px) {
       .app { width: calc(100vw - 14px); padding-top: 10px; }
       .board-wrap { padding: 8px; }
+      .board-shell { min-width: 360px; }
       .controls { grid-template-columns: 1fr; }
     }
   </style>
@@ -468,8 +494,13 @@ WEB_HTML = r"""<!doctype html>
 
     const files = ["a","b","c","d","e","f","g","h","i"];
     const ranks = ["0","1","2","3","4","5","6","7","8","9"];
+    const boardView = { w: 1000, h: 1120, left: 130, top: 130, cell: 82 };
 
     function coord(x, y) { return files[x] + ranks[y]; }
+    function pointX(x) { return boardView.left + x * boardView.cell; }
+    function pointY(y) { return boardView.top + y * boardView.cell; }
+    function pctX(value) { return (value / boardView.w * 100) + "%"; }
+    function pctY(value) { return (value / boardView.h * 100) + "%"; }
 
     function setMessage(text, error = false) {
       messageEl.textContent = text || "";
@@ -492,17 +523,11 @@ WEB_HTML = r"""<!doctype html>
       const legal = selected ? legalTargets(selected) : new Set();
       const last = state.last_move || {};
 
-      addCorner();
-      files.forEach(file => addCoord(file));
-      addCorner();
+      boardEl.appendChild(renderBoardSvg());
+      addCoordinates();
       state.grid.forEach((row, y) => {
-        addCoord(String(y));
-        row.forEach((piece, x) => addCell(piece, x, y, legal, last));
-        addCoord(String(y));
+        row.forEach((piece, x) => addIntersection(piece, x, y, legal, last));
       });
-      addCorner();
-      files.forEach(file => addCoord(file));
-      addCorner();
 
       renderLog(moveLogEl, state.move_log);
       renderLog(talkLogEl, state.talk_log);
@@ -511,24 +536,96 @@ WEB_HTML = r"""<!doctype html>
       document.querySelector('[data-action="resign"]').disabled = busy || !state.game_active;
     }
 
-    function addCorner() {
-      const node = document.createElement("div");
-      node.className = "coord";
-      boardEl.appendChild(node);
+    function renderBoardSvg() {
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("viewBox", `0 0 ${boardView.w} ${boardView.h}`);
+      svg.setAttribute("class", "board-svg");
+      svg.setAttribute("aria-hidden", "true");
+      const left = boardView.left;
+      const top = boardView.top;
+      const cell = boardView.cell;
+      const right = pointX(8);
+      const bottom = pointY(9);
+      const riverTop = pointY(4);
+      const riverBottom = pointY(5);
+      const markup = [];
+      markup.push(`<defs>
+        <linearGradient id="boardPaper" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0" stop-color="#f8dfaa"/>
+          <stop offset=".55" stop-color="#f0ca7d"/>
+          <stop offset="1" stop-color="#f7e0ad"/>
+        </linearGradient>
+      </defs>`);
+      markup.push(`<rect x="38" y="38" width="924" height="972" rx="28" fill="#f4d99f" stroke="#9a6a2d" stroke-width="5"/>`);
+      markup.push(`<rect x="74" y="76" width="852" height="858" rx="18" fill="url(#boardPaper)" stroke="#b98637" stroke-width="3"/>`);
+      markup.push(`<rect x="${left}" y="${riverTop + 3}" width="${right - left}" height="${riverBottom - riverTop - 6}" fill="#f7d994" opacity=".96"/>`);
+      for (let y = 0; y < 10; y += 1) {
+        const py = pointY(y);
+        const width = y === 0 || y === 9 ? 3.2 : 2.1;
+        markup.push(`<line x1="${left}" y1="${py}" x2="${right}" y2="${py}" stroke="#5b3718" stroke-width="${width}" stroke-linecap="square"/>`);
+      }
+      for (let x = 0; x < 9; x += 1) {
+        const px = pointX(x);
+        const width = x === 0 || x === 8 ? 3.2 : 2.1;
+        markup.push(`<line x1="${px}" y1="${top}" x2="${px}" y2="${riverTop}" stroke="#5b3718" stroke-width="${width}" stroke-linecap="square"/>`);
+        markup.push(`<line x1="${px}" y1="${riverBottom}" x2="${px}" y2="${bottom}" stroke="#5b3718" stroke-width="${width}" stroke-linecap="square"/>`);
+      }
+      markup.push(`<line x1="${pointX(3)}" y1="${top}" x2="${pointX(5)}" y2="${pointY(2)}" stroke="#5b3718" stroke-width="2.2"/>`);
+      markup.push(`<line x1="${pointX(5)}" y1="${top}" x2="${pointX(3)}" y2="${pointY(2)}" stroke="#5b3718" stroke-width="2.2"/>`);
+      markup.push(`<line x1="${pointX(3)}" y1="${bottom}" x2="${pointX(5)}" y2="${pointY(7)}" stroke="#5b3718" stroke-width="2.2"/>`);
+      markup.push(`<line x1="${pointX(5)}" y1="${bottom}" x2="${pointX(3)}" y2="${pointY(7)}" stroke="#5b3718" stroke-width="2.2"/>`);
+      [[1,2],[7,2],[1,7],[7,7],[0,3],[2,3],[4,3],[6,3],[8,3],[0,6],[2,6],[4,6],[6,6],[8,6]].forEach(([x, y]) => {
+        markup.push(markerMarkup(pointX(x), pointY(y), x));
+      });
+      markup.push(`<text x="${pointX(2)}" y="${riverTop + cell * .62}" text-anchor="middle" font-size="38" font-weight="700" fill="#764719" font-family="KaiTi, STKaiti, SimSun, serif">楚 河</text>`);
+      markup.push(`<text x="${pointX(6)}" y="${riverTop + cell * .62}" text-anchor="middle" font-size="38" font-weight="700" fill="#764719" font-family="KaiTi, STKaiti, SimSun, serif">汉 界</text>`);
+      svg.innerHTML = markup.join("");
+      return svg;
     }
 
-    function addCoord(text) {
-      const node = document.createElement("div");
+    function markerMarkup(cx, cy, boardX) {
+      const gap = 11;
+      const arm = 18;
+      const parts = [];
+      const dirs = [];
+      if (boardX > 0) dirs.push([-1, -1], [-1, 1]);
+      if (boardX < 8) dirs.push([1, -1], [1, 1]);
+      dirs.forEach(([sx, sy]) => {
+        const x = cx + sx * gap;
+        const y = cy + sy * gap;
+        parts.push(`<path d="M ${x} ${y} h ${sx * arm} M ${x} ${y} v ${sy * arm}" stroke="#5b3718" stroke-width="2" fill="none" stroke-linecap="square"/>`);
+      });
+      return parts.join("");
+    }
+
+    function addCoordinates() {
+      files.forEach((file, x) => {
+        addCoord(file, pointX(x), 72);
+        addCoord(file, pointX(x), 926);
+      });
+      ranks.forEach((rank, y) => {
+        addCoord(rank, 84, pointY(y));
+        addCoord(rank, 816, pointY(y));
+      });
+    }
+
+    function addCoord(text, x, y) {
+      const node = document.createElement("span");
       node.className = "coord";
       node.textContent = text;
+      node.style.left = pctX(x);
+      node.style.top = pctY(y);
       boardEl.appendChild(node);
     }
 
-    function addCell(piece, x, y, legal, last) {
+    function addIntersection(piece, x, y, legal, last) {
       const c = coord(x, y);
       const node = document.createElement("button");
-      node.className = "cell";
+      node.className = "intersection";
       node.dataset.coord = c;
+      node.style.left = pctX(pointX(x));
+      node.style.top = pctY(pointY(y));
+      node.setAttribute("aria-label", c + (piece ? " " + piece.name : ""));
       if (selected === c) node.classList.add("selected");
       if (legal.has(c)) node.classList.add("legal");
       if (last.from === c) node.classList.add("last-from");

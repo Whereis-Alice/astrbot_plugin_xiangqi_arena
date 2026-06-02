@@ -13,7 +13,7 @@
 - 低配默认参数：小 Hash、单线程、固定 movetime、短台词超时
 - 对局中可直接发送 `a6 b6`、`a6-b6`、`a6b6` 走棋
 - 可选中文棋谱走法：`马八进七`、`炮二平五`、`兵三进一`
-- 独立 WebUI：通过 `网页下棋` 生成地址，在浏览器里点击棋盘走棋
+- 独立 WebUI：传统线盘棋盘，带楚河汉界、九宫、兵炮位和点击交点走棋
 - WebUI 与聊天共用同一个会话棋局，网页走棋可主动同步回聊天
 - Bot 走棋后默认使用当前 AstrBot 会话实际生效的人格生成短回复，并带最近走法/台词记忆
 - 普通聊天时也会临时注入当前棋局上下文，让 Bot 知道局势和自己之前说过什么
@@ -423,9 +423,9 @@ engine/ai.py                builtin 搜索 AI
 engine/http_adapter.py      可选 HTTP 引擎适配
 engine/pikafish_adapter.py  Pikafish UCI 常驻进程适配
 engine/xqwlight_adapter.py  xqwlight Java CLI 适配
-render/board_image.py       棋盘 PNG 渲染
+render/board_image.py       传统线盘棋盘 PNG 渲染
 storage/session_store.py    会话棋局存档
-webui/server.py             独立 aiohttp WebUI 服务和前端页面
+webui/server.py             独立 aiohttp WebUI 服务和线盘前端页面
 tools/pikafish_http_service 独立 Pikafish HTTP 共享服务
 ```
 

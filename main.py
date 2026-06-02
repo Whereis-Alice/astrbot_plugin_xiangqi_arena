@@ -5,6 +5,7 @@ import inspect
 import random
 import re
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,9 @@ class WebEventProxy:
 
     def get_sender_id(self) -> str:
         return self.unified_msg_origin
+
+    def get_platform_name(self) -> str:
+        return self.unified_msg_origin.split(":", 1)[0] if ":" in self.unified_msg_origin else "webui"
 
 
 class XiangqiArenaPlugin(Star):
@@ -1020,25 +1024,100 @@ class XiangqiArenaPlugin(Star):
         return cleaned or self._fallback_bot_talk(bot_move, bot_reason, bot_color, player_move, sentence_count)
 
     async def _build_persona_system_prompt(self, event: AstrMessageEvent) -> str | None:
-        prompt = await self._get_default_persona_prompt(event)
+        prompt = await self._get_selected_persona_prompt(event)
         extra = self._llm_extra_prompt()
         if extra:
             prompt = f"{prompt}\n\n{extra}" if prompt else extra
         return prompt or None
 
-    async def _get_default_persona_prompt(self, event: AstrMessageEvent) -> str:
+    async def _get_selected_persona_prompt(self, event: AstrMessageEvent | WebEventProxy) -> str:
         persona_manager = getattr(self.context, "persona_manager", None)
+        if persona_manager is None:
+            return ""
+        umo = getattr(event, "unified_msg_origin", None)
+
+        resolver = getattr(persona_manager, "resolve_selected_persona", None)
+        if callable(resolver) and umo:
+            try:
+                result = resolver(
+                    umo=umo,
+                    conversation_persona_id=await self._current_conversation_persona_id(str(umo)),
+                    platform_name=self._event_platform_name(event),
+                    provider_settings=self._provider_settings_for_umo(str(umo)),
+                )
+                if inspect.isawaitable(result):
+                    result = await result
+                persona_id, persona, _forced_id, _use_webchat_default = result
+                if persona_id == "[%None]":
+                    return ""
+                prompt = self._persona_prompt(persona)
+                if prompt:
+                    return prompt
+            except Exception as exc:
+                logger.warning("%s selected persona unavailable: %s", PLUGIN_LOG_NAME, exc)
+
         getter = getattr(persona_manager, "get_default_persona_v3", None)
         if getter is None:
             return ""
         try:
-            result = getter(getattr(event, "unified_msg_origin", None))
+            result = getter(umo)
             if inspect.isawaitable(result):
                 result = await result
         except Exception as exc:
             logger.warning("%s default persona unavailable: %s", PLUGIN_LOG_NAME, exc)
             return ""
-        return str(getattr(result, "prompt", None) or getattr(result, "system_prompt", None) or "").strip()
+        return self._persona_prompt(result)
+
+    async def _current_conversation_persona_id(self, umo: str) -> str | None:
+        conversation_manager = getattr(self.context, "conversation_manager", None)
+        if conversation_manager is None:
+            return None
+        try:
+            cid_result = conversation_manager.get_curr_conversation_id(umo)
+            cid = await cid_result if inspect.isawaitable(cid_result) else cid_result
+            if not cid:
+                return None
+            conv_result = conversation_manager.get_conversation(umo, cid)
+            conversation = await conv_result if inspect.isawaitable(conv_result) else conv_result
+            return str(getattr(conversation, "persona_id", "") or "") or None
+        except Exception as exc:
+            logger.warning("%s conversation persona unavailable: %s", PLUGIN_LOG_NAME, exc)
+            return None
+
+    def _event_platform_name(self, event: AstrMessageEvent | WebEventProxy) -> str:
+        getter = getattr(event, "get_platform_name", None)
+        if callable(getter):
+            try:
+                value = getter()
+                if value:
+                    return str(value)
+            except Exception:
+                pass
+        umo = str(getattr(event, "unified_msg_origin", "") or "")
+        return umo.split(":", 1)[0] if ":" in umo else ""
+
+    def _provider_settings_for_umo(self, umo: str) -> dict[str, Any]:
+        getter = getattr(self.context, "get_config", None)
+        if not callable(getter):
+            return {}
+        try:
+            config = getter(umo=umo)
+        except TypeError:
+            try:
+                config = getter()
+            except Exception:
+                return {}
+        except Exception:
+            return {}
+        settings = config.get("provider_settings", {}) if hasattr(config, "get") else {}
+        return settings if isinstance(settings, dict) else {}
+
+    def _persona_prompt(self, persona: Any) -> str:
+        if persona is None:
+            return ""
+        if isinstance(persona, Mapping):
+            return str(persona.get("prompt") or persona.get("system_prompt") or "").strip()
+        return str(getattr(persona, "prompt", None) or getattr(persona, "system_prompt", None) or "").strip()
 
     def _cooldown_llm_talk(self, exc: Exception) -> None:
         cooldown = self._llm_talk_failure_cooldown_seconds()
@@ -1069,7 +1148,9 @@ class XiangqiArenaPlugin(Star):
         else:
             engine_text = "内部引擎信息不向聊天展示；不要提搜索评分、引擎名称、失败、降级或冷却。\n"
         return (
-            "你正在当前聊天会话里下中国象棋。请沿用当前 AstrBot 人格说话，但只为 Bot 自己说话。\n"
+            "你正在当前聊天会话里下中国象棋。上方 Persona Instructions / 系统人格优先，棋局信息只是回复内容来源。\n"
+            "请严格沿用当前人格的身份、称呼、语气、情绪强度和说话习惯；除非人格本来如此，不要突然变得嘴硬、挑衅或江湖气。\n"
+            "你只为 Bot 自己说话，不要扮演人类玩家。\n"
             "刚才完整回合：人类玩家先走，Bot 随后应对。\n"
             f"人类玩家走：{player_move_text}。\n"
             f"Bot 也就是你走：{describe_move(bot_move)}{captured}。\n"
@@ -1080,9 +1161,10 @@ class XiangqiArenaPlugin(Star):
             "输出要求：\n"
             f"- 只输出{sentence_count}句中文台词，每句单独一行，每句最多{max_chars}字。\n"
             "- 可以自然承接你之前说过的话，但不要机械复读旧台词。\n"
+            "- 像这个人格平时聊天时自然补一句棋局回应；不要为了下棋强行换成竞技解说、嘲讽或热血口吻。\n"
             "- 不要说'玩家走了Bot这步'，不要把 Bot 的走法归到人类玩家身上。\n"
             "- 不要输出编号、JSON、引号、括号说明；不要替玩家走棋。\n"
-            "- 可以有情绪和胜负欲，但不要低俗，不要像客服，不要说'作为AI'。"
+            "- 不要低俗，不要像客服，不要说'作为AI'。"
         )
 
     def _ascii_board(self, board: Board) -> str:
@@ -1218,9 +1300,9 @@ class XiangqiArenaPlugin(Star):
         player_text = describe_move(player_move) if player_move is not None else "开局"
         reason = (bot_reason or "").strip()
         templates = [
-            f"你刚走 {player_text}，我应 {bot_text}。",
-            f"这手 {bot_text} 先把局面稳住。",
-            f"我执{bot_side}，这步 {bot_text} 不急。",
+            f"你走 {player_text}，我走 {bot_text}。",
+            f"我执{bot_side}，这步走 {bot_text}。",
+            f"先走 {bot_text}，我们继续看局面。",
         ]
         if reason and self._engine_details_in_chat():
             templates.append(f"引擎看好 {bot_text}，{reason}。")

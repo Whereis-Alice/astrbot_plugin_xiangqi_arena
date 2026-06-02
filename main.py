@@ -415,7 +415,7 @@ class XiangqiArenaPlugin(Star):
         return self._str_config("llm_extra_prompt")
 
     def _llm_talk_timeout(self) -> float:
-        return self._float_config("llm_talk_timeout", 3.0, 1.0, 15.0)
+        return self._float_config("llm_talk_timeout", 3.0, 1.0, 300.0)
 
     def _llm_talk_failure_cooldown_seconds(self) -> int:
         return self._int_config("llm_talk_failure_cooldown_seconds", 0, 0, 3600)

@@ -178,7 +178,7 @@
     "description": "回复生成超时秒数",
     "type": "int",
     "default": 3,
-    "hint": "低配服务器建议 2-3。超时后会使用本地兜底台词，不影响棋局。"
+    "hint": "有效范围 1-300。低配服务器建议 2-3；上游回复较慢时可设 60-120。超时后会使用本地兜底台词，不影响棋局。"
   },
   "llm_talk_failure_cooldown_seconds": {
     "description": "回复失败冷却秒数",

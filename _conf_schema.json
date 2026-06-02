@@ -11,11 +11,29 @@
     ],
     "hint": "auto 会按 Pikafish -> xqwlight -> builtin 的顺序尝试；任一外部引擎失败后会进入冷却并自动降级。"
   },
-  "show_engine_details": {
-    "description": "回复中显示引擎细节",
+  "move_summary_enabled": {
+    "description": "发送走法摘要",
+    "type": "bool",
+    "default": true,
+    "hint": "开启时每回合发送一行走法摘要；关闭时只发 Bot 台词和棋盘，更像自然聊天。"
+  },
+  "move_summary_template": {
+    "description": "完整回合摘要模板",
+    "type": "string",
+    "default": "你走了 {player_move} 我走了 {bot_move}",
+    "hint": "可用变量：{player_move}、{bot_move}、{player_from}、{player_to}、{bot_from}、{bot_to}。"
+  },
+  "player_move_summary_template": {
+    "description": "玩家终局摘要模板",
+    "type": "string",
+    "default": "你走了 {player_move}",
+    "hint": "玩家一步直接结束棋局时使用。可用变量：{player_move}、{player_from}、{player_to}。"
+  },
+  "engine_details_in_chat": {
+    "description": "聊天中显示引擎细节",
     "type": "bool",
     "default": false,
-    "hint": "关闭时玩家只看到走法和棋盘；开启时会显示引擎名、搜索时间和失败降级原因。"
+    "hint": "默认关闭。搜索评分、引擎失败和降级原因会写入 AstrBot 日志；只有开启后才会出现在聊天回复里。"
   },
   "enable_pikafish_engine": {
     "description": "启用 Pikafish",
@@ -137,6 +155,12 @@
     "type": "text",
     "default": "",
     "hint": "默认使用 AstrBot 当前选择的人格。这里仅用于追加下棋口吻约束，不填也可以。"
+  },
+  "llm_talk_template": {
+    "description": "台词发送模板",
+    "type": "string",
+    "default": "{talk}",
+    "hint": "可用变量：{talk}。默认不额外包裹符号；如果想加括号可填「{talk}」。"
   },
   "llm_talk_timeout": {
     "description": "回复生成超时秒数",

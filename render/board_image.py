@@ -19,7 +19,7 @@ def render_board(board: Board, output_path: Path, scale: int = 1) -> Path:
     scale = max(1, min(scale, 2))
     cell = 68 * scale
     margin_x = 90 * scale
-    margin_y = 80 * scale
+    margin_y = 120 * scale
     width = margin_x * 2 + cell * 8
     footer_height = 40 * scale
     height = margin_y * 2 + cell * 9 + footer_height
@@ -55,7 +55,7 @@ def render_board(board: Board, output_path: Path, scale: int = 1) -> Path:
     for idx in range(9):
         label = chr(ord("a") + idx)
         x = left + idx * cell
-        _draw_centered(draw, (x, top - 30 * scale), label, font_small, LINE_COLOR)
+        _draw_centered(draw, (x, top - 72 * scale), label, font_small, LINE_COLOR)
         _draw_centered(draw, (x, bottom + 30 * scale), label, font_small, LINE_COLOR)
     for idx in range(10):
         y = top + idx * cell
@@ -121,6 +121,9 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+        "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/simhei.ttf",
+        "C:/Windows/Fonts/simsun.ttc",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     ]
     for path in candidates:

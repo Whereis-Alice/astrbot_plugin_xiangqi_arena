@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.3 - 2026-06-02
+
+### Added
+
+- 新增走法摘要开关和模板：默认文案为 `你走了 {player_move} 我走了 {bot_move}`。
+- 新增台词发送模板：默认 `{talk}`，不再自动添加 `「」`。
+- 新增对局记忆：保存最近几手和 Bot 最近说过的话，生成下一句台词时会放入 prompt。
+
+### Changed
+
+- 引擎搜索评分、失败降级原因默认只写入 AstrBot 日志，不再出现在聊天回复里。
+- 顶部坐标上移并增加棋盘上边距，避免顶端棋子遮挡 a-i 坐标。
+- 棋盘渲染增加 Windows 常见中文字体候选，本地预览不再容易出现方块字。
+
 ## 3.0.2 - 2026-06-02
 
 ### Changed
@@ -32,7 +46,7 @@
 - 新增 `engine_backend`，支持 `auto` / `pikafish` / `xqwlight` / `builtin`。
 - 新增 Pikafish 配置：路径、工作目录、NNUE、线程数、Hash、movetime、Move Overhead、启动超时。
 - 新增外部引擎失败冷却：Pikafish/xqwlight 失败后会自动跳过一段时间并尝试后续引擎。
-- 新增 `show_engine_details`，可控制是否在对局回复中展示引擎细节。
+- 新增 `engine_details_in_chat`，可控制是否在对局回复中展示引擎细节。
 - 新增 `llm_extra_prompt`，用于在 AstrBot 默认人格基础上追加台词约束。
 - 新增 LLM 台词失败冷却，模型超时后自动使用本地兜底台词。
 

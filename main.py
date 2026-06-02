@@ -62,10 +62,18 @@ class XiangqiArenaPlugin(Star):
         if bot_move is not None:
             board.push_state()
             board.apply_move(bot_move.from_pos, bot_move.to_pos)
-            message += f" Bot 先手：{describe_move(bot_move)}"
-            if reason and self._show_engine_details():
+            message += f" 我先手：{describe_move(bot_move)}"
+            if reason and self._engine_details_in_chat():
                 message += f"（{reason}）"
             talk_lines = await self._generate_bot_talk(event, board, bot_move, reason, RED)
+            self._remember_turn(board, None, bot_move, talk_lines, False)
+            logger.info(
+                "%s bot opening move: session=%s bot=%s reason=%s",
+                PLUGIN_LOG_NAME,
+                session_id,
+                describe_move(bot_move),
+                reason,
+            )
         self.store.save(session_id, board)
         yield event.plain_result(message)
         async for result in self._yield_talk(event, talk_lines):
@@ -147,7 +155,7 @@ class XiangqiArenaPlugin(Star):
             yield event.plain_result("当前没有合法走法。")
             return
         message = f"可以考虑：{describe_move(move)}"
-        if reason and self._show_engine_details():
+        if reason and self._engine_details_in_chat():
             message += f"（{reason}）"
         yield event.plain_result(message)
 
@@ -195,7 +203,10 @@ class XiangqiArenaPlugin(Star):
             yield event.plain_result(str(exc))
             return
 
-        message_parts = [f"你走了 {format_coord(player_move.from_pos)} -> {format_coord(player_move.to_pos)}"]
+        message_parts: list[str] = []
+        player_only_summary = self._format_player_move_summary(player_move)
+        if player_only_summary:
+            message_parts.append(player_only_summary)
         if self._append_endgame_message(board, opponent(player_color), message_parts, winner_is_player=True):
             self.store.delete(session_id)
             yield event.plain_result(" ".join(message_parts))
@@ -205,7 +216,7 @@ class XiangqiArenaPlugin(Star):
         bot_color = opponent(player_color)
         bot_move, bot_reason = await self._choose_bot_move(board, bot_color)
         if bot_move is None:
-            message_parts.append("Bot 无合法走法，本局结束。")
+            message_parts.append("我无合法走法，本局结束。")
             self.store.delete(session_id)
             yield event.plain_result(" ".join(message_parts))
             yield event.image_result(str(self._render_session_board(session_id, board)))
@@ -213,20 +224,33 @@ class XiangqiArenaPlugin(Star):
 
         board.push_state()
         board.apply_move(bot_move.from_pos, bot_move.to_pos)
-        bot_message = f"Bot 走了 {describe_move(bot_move)}"
-        if bot_reason and self._show_engine_details():
-            bot_message += f"（{bot_reason}）"
-        message_parts.append(bot_message)
+        summary = self._format_turn_summary(player_move, bot_move)
+        if summary:
+            message_parts = [summary]
+        if summary and bot_reason and self._engine_details_in_chat():
+            message_parts.append(f"（{bot_reason}）")
         talk_lines = await self._generate_bot_talk(event, board, bot_move, bot_reason, bot_color, player_move)
 
-        if is_in_check(board, player_color):
+        player_in_check = is_in_check(board, player_color)
+        if player_in_check:
             message_parts.append("你现在被将军。")
+        logger.info(
+            "%s turn: session=%s player=%s bot=%s reason=%s",
+            PLUGIN_LOG_NAME,
+            session_id,
+            describe_move(player_move),
+            describe_move(bot_move),
+            bot_reason,
+        )
+        self._remember_turn(board, player_move, bot_move, talk_lines, player_in_check)
         if self._append_endgame_message(board, player_color, message_parts, winner_is_player=False):
             self.store.delete(session_id)
         else:
             self.store.save(session_id, board)
 
-        yield event.plain_result(" ".join(message_parts))
+        summary_text = " ".join(message_parts).strip()
+        if summary_text:
+            yield event.plain_result(summary_text)
         async for result in self._yield_talk(event, talk_lines):
             yield result
         yield event.image_result(str(self._render_session_board(session_id, board)))
@@ -235,7 +259,7 @@ class XiangqiArenaPlugin(Star):
         if not talk_lines:
             return
         for talk_line in talk_lines:
-            yield event.plain_result(f"「{talk_line}」")
+            yield event.plain_result(self._format_talk_line(talk_line))
 
     def _parse_move(self, from_coord: str | None, to_coord: str | None, raw_text: str) -> tuple[tuple[int, int], tuple[int, int]]:
         if from_coord and to_coord:
@@ -339,8 +363,20 @@ class XiangqiArenaPlugin(Star):
         scale = self._int_config("image_scale", 1, 1, 2)
         return 1 if scale <= 1 else 2
 
-    def _show_engine_details(self) -> bool:
-        return self._bool_config("show_engine_details", False)
+    def _move_summary_enabled(self) -> bool:
+        return self._bool_config("move_summary_enabled", True)
+
+    def _turn_summary_template(self) -> str:
+        return self._str_config("move_summary_template", "你走了 {player_move} 我走了 {bot_move}")
+
+    def _player_move_summary_template(self) -> str:
+        return self._str_config("player_move_summary_template", "你走了 {player_move}")
+
+    def _engine_details_in_chat(self) -> bool:
+        return self._bool_config("engine_details_in_chat", False)
+
+    def _talk_line_template(self) -> str:
+        return self._str_config("llm_talk_template", "{talk}") or "{talk}"
 
     def _llm_talk_enabled(self) -> bool:
         return self._bool_config("llm_talk_enabled", True)
@@ -595,17 +631,24 @@ class XiangqiArenaPlugin(Star):
         captured = f"，吃掉{bot_move.captured}" if getattr(bot_move, "captured", None) else ""
         player_move_text = describe_move(player_move) if player_move is not None else "无，本局由你先手走棋"
         board_text = self._ascii_board(board)
+        memory_text = self._memory_text(board)
         max_chars = self._llm_talk_max_chars()
+        if self._engine_details_in_chat():
+            engine_text = f"引擎信息：{bot_reason or '无'}。\n"
+        else:
+            engine_text = "内部引擎信息不向聊天展示；不要提搜索评分、引擎名称、失败、降级或冷却。\n"
         return (
             "你正在当前聊天会话里下中国象棋。请沿用当前 AstrBot 人格说话，但只为 Bot 自己说话。\n"
             "刚才完整回合：人类玩家先走，Bot 随后应对。\n"
             f"人类玩家走：{player_move_text}。\n"
             f"Bot 也就是你走：{describe_move(bot_move)}{captured}。\n"
-            f"Bot 执{bot_side}。引擎信息：{bot_reason or '无'}。\n"
+            f"Bot 执{bot_side}。{engine_text}"
             f"对手当前{'被将军' if player_in_check else '没有被将军'}。\n"
+            f"最近对局记忆：\n{memory_text}\n"
             f"当前棋盘，0行是黑方底线，9行是红方底线：\n{board_text}\n\n"
             "输出要求：\n"
             f"- 只输出{sentence_count}句中文台词，每句单独一行，每句最多{max_chars}字。\n"
+            "- 可以自然承接你之前说过的话，但不要机械复读旧台词。\n"
             "- 不要说'玩家走了Bot这步'，不要把 Bot 的走法归到人类玩家身上。\n"
             "- 不要输出编号、JSON、引号、括号说明；不要替玩家走棋。\n"
             "- 可以有情绪和胜负欲，但不要低俗，不要像客服，不要说'作为AI'。"
@@ -617,6 +660,16 @@ class XiangqiArenaPlugin(Star):
             rows.append(f"{y} " + " ".join(piece if piece is not None else "." for piece in row))
         rows.append("  a b c d e f g h i")
         return "\n".join(rows)
+
+    def _memory_text(self, board: Board) -> str:
+        lines: list[str] = []
+        if board.move_log:
+            lines.append("最近几手：")
+            lines.extend(f"- {item}" for item in board.move_log[-5:])
+        if board.talk_log:
+            lines.append("我之前说过：")
+            lines.extend(f"- {item}" for item in board.talk_log[-5:])
+        return "\n".join(lines) if lines else "暂无。"
 
     def _clean_llm_talk(self, text: str, sentence_count: int) -> list[str] | None:
         text = text.replace("\r", "\n").strip()
@@ -669,7 +722,7 @@ class XiangqiArenaPlugin(Star):
             f"这手 {bot_text} 先把局面稳住。",
             f"我执{bot_side}，这步 {bot_text} 不急。",
         ]
-        if reason and self._show_engine_details():
+        if reason and self._engine_details_in_chat():
             templates.append(f"引擎看好 {bot_text}，{reason}。")
         max_chars = self._llm_talk_max_chars()
         result: list[str] = []
@@ -681,6 +734,62 @@ class XiangqiArenaPlugin(Star):
             if len(result) >= max(1, sentence_count):
                 break
         return result or [f"我走 {bot_text}。"]
+
+    def _format_turn_summary(self, player_move: Move, bot_move: Move) -> str | None:
+        if not self._move_summary_enabled():
+            return None
+        return self._render_template(
+            self._turn_summary_template(),
+            {
+                "player_move": describe_move(player_move),
+                "bot_move": describe_move(bot_move),
+                "player_from": format_coord(player_move.from_pos),
+                "player_to": format_coord(player_move.to_pos),
+                "bot_from": format_coord(bot_move.from_pos),
+                "bot_to": format_coord(bot_move.to_pos),
+            },
+        )
+
+    def _format_player_move_summary(self, player_move: Move) -> str | None:
+        if not self._move_summary_enabled():
+            return None
+        return self._render_template(
+            self._player_move_summary_template(),
+            {
+                "player_move": describe_move(player_move),
+                "player_from": format_coord(player_move.from_pos),
+                "player_to": format_coord(player_move.to_pos),
+            },
+        )
+
+    def _format_talk_line(self, talk_line: str) -> str:
+        return self._render_template(self._talk_line_template(), {"talk": talk_line}).strip() or talk_line
+
+    def _render_template(self, template: str, values: dict[str, str]) -> str:
+        result = template
+        for key, value in values.items():
+            result = result.replace("{" + key + "}", value)
+        return result.strip()
+
+    def _remember_turn(
+        self,
+        board: Board,
+        player_move: Move | None,
+        bot_move: Move,
+        talk_lines: list[str] | None,
+        player_in_check: bool,
+    ) -> None:
+        player_text = describe_move(player_move) if player_move is not None else "开局"
+        note = f"玩家：{player_text}；我：{describe_move(bot_move)}"
+        if player_in_check:
+            note += "；玩家被将军"
+        board.move_log.append(note)
+        board.move_log = board.move_log[-8:]
+        for line in talk_lines or []:
+            clean = re.sub(r"\s+", " ", line).strip()
+            if clean:
+                board.talk_log.append(clean)
+        board.talk_log = board.talk_log[-8:]
 
     def _append_endgame_message(
         self,

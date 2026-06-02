@@ -85,6 +85,8 @@ class Board:
     side_to_move: str = RED
     player_color: str = RED
     last_move: Move | None = None
+    move_log: list[str] = field(default_factory=list)
+    talk_log: list[str] = field(default_factory=list)
     history: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
@@ -97,6 +99,8 @@ class Board:
             side_to_move=self.side_to_move,
             player_color=self.player_color,
             last_move=None if self.last_move is None else Move.from_dict(self.last_move.to_dict()),
+            move_log=list(self.move_log),
+            talk_log=list(self.talk_log),
             history=[entry.copy() for entry in self.history],
         )
 
@@ -114,6 +118,8 @@ class Board:
             "side_to_move": self.side_to_move,
             "player_color": self.player_color,
             "last_move": None if self.last_move is None else self.last_move.to_dict(),
+            "move_log": list(self.move_log),
+            "talk_log": list(self.talk_log),
         }
 
     def restore(self, state: dict[str, Any]) -> None:
@@ -122,6 +128,8 @@ class Board:
         self.player_color = state.get("player_color", RED)
         last_move = state.get("last_move")
         self.last_move = None if last_move is None else Move.from_dict(last_move)
+        self.move_log = list(state.get("move_log", []))
+        self.talk_log = list(state.get("talk_log", []))
 
     def push_state(self) -> None:
         self.history.append(self.snapshot())
@@ -162,6 +170,8 @@ class Board:
             "side_to_move": self.side_to_move,
             "player_color": self.player_color,
             "last_move": None if self.last_move is None else self.last_move.to_dict(),
+            "move_log": list(self.move_log),
+            "talk_log": list(self.talk_log),
             "history": [entry.copy() for entry in self.history],
         }
 
@@ -174,5 +184,7 @@ class Board:
         )
         last_move = data.get("last_move")
         board.last_move = None if last_move is None else Move.from_dict(last_move)
+        board.move_log = list(data.get("move_log", []))
+        board.talk_log = list(data.get("talk_log", []))
         board.history = [entry.copy() for entry in data.get("history", [])]
         return board

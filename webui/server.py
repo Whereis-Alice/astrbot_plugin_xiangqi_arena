@@ -112,7 +112,13 @@ class XiangqiWebServer:
         session_id, error = self._session_from_payload(request, payload)
         if error:
             return self._json({"ok": False, "error": error}, status=403)
-        return self._json(await self.plugin.webui_start_game(session_id, str(payload.get("player_color") or "red")))
+        return self._json(
+            await self.plugin.webui_start_game(
+                session_id,
+                str(payload.get("player_color") or "red"),
+                force=bool(payload.get("force")),
+            )
+        )
 
     async def _handle_move(self, request: Any) -> Any:
         payload = await self._read_json(request)
@@ -427,6 +433,8 @@ WEB_HTML = r"""<!doctype html>
           <div class="controls">
             <button class="primary" data-action="new-red">开局</button>
             <button data-action="new-black">执黑</button>
+            <button data-action="restart-red">重开</button>
+            <button data-action="restart-black">重开执黑</button>
             <button data-action="hint">提示</button>
             <button data-action="undo">悔棋</button>
             <button class="danger" data-action="resign">认输</button>
@@ -630,6 +638,8 @@ WEB_HTML = r"""<!doctype html>
 
     document.querySelector('[data-action="new-red"]').addEventListener("click", () => post("api/new", { player_color: "red" }));
     document.querySelector('[data-action="new-black"]').addEventListener("click", () => post("api/new", { player_color: "black" }));
+    document.querySelector('[data-action="restart-red"]').addEventListener("click", () => post("api/new", { player_color: "red", force: true }));
+    document.querySelector('[data-action="restart-black"]').addEventListener("click", () => post("api/new", { player_color: "black", force: true }));
     document.querySelector('[data-action="hint"]').addEventListener("click", () => post("api/hint"));
     document.querySelector('[data-action="undo"]').addEventListener("click", () => post("api/undo"));
     document.querySelector('[data-action="resign"]').addEventListener("click", () => post("api/resign"));

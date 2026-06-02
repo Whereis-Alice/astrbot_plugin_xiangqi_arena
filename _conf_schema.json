@@ -29,6 +29,12 @@
     "default": "你走了 {player_move}",
     "hint": "玩家一步直接结束棋局时使用。可用变量：{player_move}、{player_from}、{player_to}。"
   },
+  "protect_active_game_reset": {
+    "description": "保护未结束棋局不被开局重置",
+    "type": "bool",
+    "default": true,
+    "hint": "默认开启。同一会话已有未结束棋局时，普通“开局/执黑”不会覆盖当前棋局；需要发送“重开/重开执黑”或在 WebUI 点重开才会强制重置。"
+  },
   "enable_chinese_notation": {
     "description": "启用中文棋谱走法",
     "type": "bool",

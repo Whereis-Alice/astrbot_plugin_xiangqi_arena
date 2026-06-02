@@ -1,10 +1,14 @@
-name: astrbot_plugin_xiangqi
-display_name: 坐标制中国象棋
-author: zxx624
-version: 2.2.0
-desc: 基于 negamax + alpha-beta 剪枝的 AstrBot 中国象棋对战插件
-repo: https://github.com/zxx624/astrbot_plugin_xiangqi
+name: astrbot_plugin_xiangqi_arena
+display_name: 象棋竞技场
+author: Whereis-Alice, based on zxx624
+version: 3.0.0
+desc: 支持 Pikafish/xqwlight/builtin 多引擎降级、低配服务器冷却保护和简化走棋指令的 AstrBot 中国象棋插件
+repo: https://github.com/Whereis-Alice/astrbot_plugin_xiangqi_arena
 astrbot_version: ">=4.24,<5"
 support_platforms:
   - aiocqhttp
   - telegram
+tags:
+  - game
+  - xiangqi
+  - pikafish

@@ -309,10 +309,10 @@ class XiangqiArenaPlugin(Star):
             raise RuntimeError("请先配置 pikafish_http_url，例如 http://127.0.0.1:8788/bestmove")
         proc = self._pikafish_http_proc
         if proc is not None and proc.returncode is None:
-            return f"Pikafish HTTP 服务已由插件托管运行中：{self._pikafish_http_health_url()}"
+            return f"Pikafish HTTP 服务已由插件托管运行中。\n接口地址：{self._pikafish_http_url()}\n健康检查：可访问"
         ok, _detail = await self._check_pikafish_http_health(timeout=0.8)
         if ok:
-            return f"Pikafish HTTP 服务已经可访问：{self._pikafish_http_health_url()}\n当前没有插件托管进程，可能是 systemd 或手动命令启动的服务。"
+            return f"Pikafish HTTP 服务已经可访问。\n接口地址：{self._pikafish_http_url()}\n当前没有插件托管进程，可能是 systemd 或手动命令启动的服务。"
 
         script = self._pikafish_http_service_script()
         if not script.exists():
@@ -358,7 +358,7 @@ class XiangqiArenaPlugin(Star):
         use_hint = ""
         if "pikafish_http" not in self._engine_order():
             use_hint = "\n当前引擎链还不会使用它，请确认 engine_backend=auto/pikafish_http 且 enable_pikafish_http_engine=true。"
-        return f"Pikafish HTTP 服务已启动：{self._pikafish_http_health_url()}{suffix}{use_hint}"
+        return f"Pikafish HTTP 服务已启动。\n接口地址：{self._pikafish_http_url()}\n健康检查：{'可访问' if ok else '暂未通过'}{suffix}{use_hint}"
 
     async def _stop_managed_pikafish_http_service(self) -> str:
         proc = self._pikafish_http_proc

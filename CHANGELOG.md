@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.1.4 - 2026-06-02
+
+### Fixed
+
+- 修复 `astrbot_plugin_chess_arena` 平台 FEN 使用 `h/e` 表示马/象时，Pikafish HTTP 服务原样转发导致 Pikafish 进程退出的问题；现在会自动转换为 Pikafish 兼容的 `n/b`。
+- 启动 Pikafish HTTP 服务的聊天提示改为显示 `/bestmove` 接口地址，不再把内部 `/health` 检查地址作为主链接发出。
+
 ## 3.1.3 - 2026-06-02
 
 ### Changed

@@ -76,6 +76,8 @@ http://127.0.0.1:8788
 
 `legal_moves` 使用 UCCI 坐标：`0` 是红方底线，`9` 是黑方底线。棋擂台插件下发的 `legal_moves` 就是这种坐标，直接转发即可。
 
+服务会兼容棋擂台常见 FEN 字母：`h/H` 会转为 Pikafish 使用的 `n/N`，`e/E` 会转为 `b/B`。例如 `rheakaehr` 会先归一成 `rnbakabnr` 再发送给 Pikafish。
+
 如果 Pikafish 超时、崩溃、路径错误，或者返回不在 `legal_moves` 里的走法，服务会返回 `422` JSON，并在服务日志里记录原因。
 
 ## 给 astrbot_plugin_chess_arena 使用

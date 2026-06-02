@@ -220,6 +220,7 @@ def normalize_fen(fen: str, side: str = "") -> str:
     if not value:
         raise PikafishServiceError("missing fen")
     parts = value.split()
+    parts[0] = normalize_fen_placement(parts[0])
     if len(parts) == 1:
         side_part = normalize_side(side) or "w"
         parts.extend([side_part, "-", "-", "0", "1"])
@@ -228,6 +229,12 @@ def normalize_fen(fen: str, side: str = "") -> str:
         if len(parts) == 2:
             parts.extend(["-", "-", "0", "1"])
     return " ".join(parts)
+
+
+def normalize_fen_placement(placement: str) -> str:
+    # Some xiangqi platforms use H/E for horse/elephant; Pikafish expects the
+    # UCI-style N/B letters. Keep the conversion limited to the placement field.
+    return str(placement or "").translate(str.maketrans({"h": "n", "H": "N", "e": "b", "E": "B"}))
 
 
 def normalize_side(side: str) -> str:

@@ -5,11 +5,12 @@
     "default": "auto",
     "options": [
       "auto",
+      "pikafish_http",
       "pikafish",
       "xqwlight",
       "builtin"
     ],
-    "hint": "auto 会按 Pikafish -> xqwlight -> builtin 的顺序尝试；任一外部引擎失败后会进入冷却并自动降级。"
+    "hint": "auto 会按 pikafish_http（已配置时）-> Pikafish -> xqwlight -> builtin 的顺序尝试；任一外部引擎失败后会进入冷却并自动降级。"
   },
   "move_summary_enabled": {
     "description": "发送走法摘要",
@@ -100,6 +101,42 @@
     "type": "bool",
     "default": true,
     "hint": "仅在 webui_notify_chat 开启时生效。关闭后网页操作只同步文字，不主动发送棋盘图片。"
+  },
+  "enable_pikafish_http_engine": {
+    "description": "启用 Pikafish HTTP 服务",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后可让本插件调用独立 Pikafish HTTP 服务，适合和其它插件共享同一个常驻 Pikafish 进程。需要同时填写 pikafish_http_url。"
+  },
+  "pikafish_http_url": {
+    "description": "Pikafish HTTP 服务 URL",
+    "type": "string",
+    "default": "",
+    "hint": "例如 http://127.0.0.1:8788/bestmove。留空时 auto 模式不会尝试 HTTP 服务。"
+  },
+  "pikafish_http_timeout_ms": {
+    "description": "Pikafish HTTP 超时毫秒",
+    "type": "int",
+    "default": 8000,
+    "hint": "单次 HTTP 引擎请求总超时。服务本身仍建议用较短 movetime，例如 300-700ms。"
+  },
+  "pikafish_http_movetime_ms": {
+    "description": "Pikafish HTTP 思考毫秒",
+    "type": "int",
+    "default": 500,
+    "hint": "传给独立服务的每步思考时间。低配服务器建议 300-700。"
+  },
+  "pikafish_http_headers": {
+    "description": "Pikafish HTTP 请求头",
+    "type": "text",
+    "default": "",
+    "hint": "可选 JSON object，例如 {\"X-Token\":\"...\"}。默认独立服务不需要请求头。"
+  },
+  "pikafish_http_failure_cooldown_seconds": {
+    "description": "Pikafish HTTP 失败冷却秒数",
+    "type": "int",
+    "default": 0,
+    "hint": "HTTP 服务超时、不可达或返回非法走法后，在这段时间内直接尝试下一个引擎。默认 0 为关闭冷却。"
   },
   "enable_pikafish_engine": {
     "description": "启用 Pikafish",

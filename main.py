@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import random
 import re
 import time
@@ -18,6 +19,7 @@ from astrbot.api.star import Context, Star, StarTools
 from .engine.ai import choose_move, describe_move
 from .engine.board import BLACK, RED, Board, Move, PIECE_NAMES, opponent, piece_color
 from .engine.chinese_notation import CHINESE_NOTATION_PATTERN, CHINESE_NOTATION_RE, parse_chinese_notation
+from .engine.http_adapter import choose_move_http
 from .engine.parser import ParseError, format_coord, parse_coord
 from .engine.pikafish_adapter import PikafishEngine
 from .engine.rules import IllegalMoveError, is_checkmate, is_in_check, is_stalemate, legal_moves
@@ -77,7 +79,7 @@ class XiangqiArenaPlugin(Star):
         self.config = config or {}
         self._pikafish_engine: PikafishEngine | None = None
         self._pikafish_signature: tuple[Any, ...] | None = None
-        self._engine_cooldowns: dict[str, float] = {"pikafish": 0.0, "xqwlight": 0.0}
+        self._engine_cooldowns: dict[str, float] = {"pikafish_http": 0.0, "pikafish": 0.0, "xqwlight": 0.0}
         self._llm_talk_cooldown_until = 0.0
         self._session_locks: dict[str, asyncio.Lock] = {}
         self._webui_server: XiangqiWebServer | None = None
@@ -718,11 +720,13 @@ class XiangqiArenaPlugin(Star):
 
     def _engine_order(self) -> list[str]:
         backend = self._str_config("engine_backend", "auto").lower()
-        if backend in {"pikafish", "xqwlight", "builtin"}:
+        if backend in {"pikafish_http", "pikafish", "xqwlight", "builtin"}:
             order = [backend]
         else:
-            order = ["pikafish", "xqwlight", "builtin"]
+            order = ["pikafish_http", "pikafish", "xqwlight", "builtin"]
 
+        if not self._bool_config("enable_pikafish_http_engine", False) or not self._pikafish_http_url():
+            order = [item for item in order if item != "pikafish_http"]
         if not self._bool_config("enable_pikafish_engine", True):
             order = [item for item in order if item != "pikafish"]
         if not self._bool_config("enable_xqwlight_engine", True):
@@ -748,6 +752,35 @@ class XiangqiArenaPlugin(Star):
 
     def _pikafish_failure_cooldown_seconds(self) -> int:
         return self._int_config("pikafish_failure_cooldown_seconds", 0, 0, 3600)
+
+    def _pikafish_http_failure_cooldown_seconds(self) -> int:
+        return self._int_config("pikafish_http_failure_cooldown_seconds", 0, 0, 3600)
+
+    def _pikafish_http_url(self) -> str:
+        return self._str_config("pikafish_http_url")
+
+    def _pikafish_http_timeout_ms(self) -> int:
+        return self._int_config("pikafish_http_timeout_ms", 8000, 100, 60000)
+
+    def _pikafish_http_movetime_ms(self) -> int:
+        return self._int_config("pikafish_http_movetime_ms", 500, 50, 10000)
+
+    def _pikafish_http_headers(self) -> dict[str, str]:
+        raw = self.config.get("pikafish_http_headers", "")
+        if isinstance(raw, dict):
+            return {str(key): str(value) for key, value in raw.items()}
+        text = str(raw or "").strip()
+        if not text:
+            return {}
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            logger.warning("%s pikafish_http_headers is not valid JSON; ignored", PLUGIN_LOG_NAME)
+            return {}
+        if not isinstance(data, dict):
+            logger.warning("%s pikafish_http_headers must be a JSON object; ignored", PLUGIN_LOG_NAME)
+            return {}
+        return {str(key): str(value) for key, value in data.items()}
 
     def _pikafish_signature_values(self) -> tuple[Any, ...]:
         return (
@@ -846,6 +879,8 @@ class XiangqiArenaPlugin(Star):
                 failures.append(f"{backend}冷却中")
                 continue
             try:
+                if backend == "pikafish_http":
+                    return await self._choose_pikafish_http_move(board, color, failures)
                 if backend == "pikafish":
                     return await self._choose_pikafish_move(board, color, failures)
                 if backend == "xqwlight":
@@ -857,6 +892,18 @@ class XiangqiArenaPlugin(Star):
                 self._cooldown_engine(backend, exc)
 
         move, reason = choose_move(board, color, self._ai_depth())
+        return move, self._merge_engine_reason(reason, failures)
+
+    async def _choose_pikafish_http_move(self, board: Board, color: str, failures: list[str]) -> tuple[Move | None, str]:
+        move, reason = await choose_move_http(
+            board=board,
+            color=color,
+            url=self._pikafish_http_url(),
+            timeout_ms=self._pikafish_http_timeout_ms(),
+            movetime_ms=self._pikafish_http_movetime_ms(),
+            headers=self._pikafish_http_headers(),
+        )
+        self._engine_cooldowns["pikafish_http"] = 0.0
         return move, self._merge_engine_reason(reason, failures)
 
     async def _choose_pikafish_move(self, board: Board, color: str, failures: list[str]) -> tuple[Move | None, str]:
@@ -896,7 +943,9 @@ class XiangqiArenaPlugin(Star):
         return self._pikafish_engine
 
     def _cooldown_engine(self, backend: str, exc: Exception) -> None:
-        if backend == "pikafish":
+        if backend == "pikafish_http":
+            cooldown = self._pikafish_http_failure_cooldown_seconds()
+        elif backend == "pikafish":
             cooldown = self._pikafish_failure_cooldown_seconds()
         elif backend == "xqwlight":
             cooldown = self._xqwlight_failure_cooldown_seconds()
@@ -914,6 +963,11 @@ class XiangqiArenaPlugin(Star):
         )
 
     def _engine_log_config(self, backend: str) -> str:
+        if backend == "pikafish_http":
+            return (
+                f"url={self._pikafish_http_url()!r}, timeout_ms={self._pikafish_http_timeout_ms()}, "
+                f"movetime_ms={self._pikafish_http_movetime_ms()}"
+            )
         if backend == "pikafish":
             signature = self._pikafish_signature_values()
             return (

@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.1.0 - 2026-06-02
+
+### Added
+
+- 新增 `tools/pikafish_http_service/` 独立 Pikafish HTTP 服务，可让多个象棋插件共享同一个常驻 Pikafish 子进程。
+- 新增本插件可选引擎后端 `pikafish_http`，支持通过 `POST /bestmove` 调用共享服务。
+- 新增配置：`enable_pikafish_http_engine`、`pikafish_http_url`、`pikafish_http_timeout_ms`、`pikafish_http_movetime_ms`、`pikafish_http_headers`、`pikafish_http_failure_cooldown_seconds`。
+- README 增加 `astrbot_plugin_chess_arena` 使用共享服务的 `custom_http` 配置示例。
+
+### Changed
+
+- `auto` 引擎链在配置 HTTP 服务后会优先尝试 `pikafish_http -> pikafish -> xqwlight -> builtin`；默认不启用 HTTP 服务，不影响现有配置。
+
 ## 3.0.11 - 2026-06-02
 
 ### Fixed

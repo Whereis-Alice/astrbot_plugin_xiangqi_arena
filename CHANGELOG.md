@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.1.1 - 2026-06-02
+
+### Added
+
+- 新增插件托管 Pikafish HTTP 服务命令：`启动Pikafish服务`、`停止Pikafish服务`、`重启Pikafish服务`、`Pikafish服务`。
+- 新增 `pikafish_http_service_auto_start`，可在插件初始化时自动拉起 `tools/pikafish_http_service/` 独立服务。
+- 新增托管服务配置：`pikafish_http_service_python`、`pikafish_http_service_pikafish_path`、`pikafish_http_service_log_level`。
+
+### Changed
+
+- 插件关闭时会停止自己托管启动的 Pikafish HTTP 服务；不会停止 systemd 或用户手动启动的外部服务。
+
 ## 3.1.0 - 2026-06-02
 
 ### Added

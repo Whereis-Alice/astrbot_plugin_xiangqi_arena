@@ -7,6 +7,8 @@
 - `astrbot_plugin_xiangqi_arena` 使用 `engine_backend = pikafish_http`
 - `zxx624/astrbot_plugin_chess_arena` 使用 `engine_mode = custom_http`
 
+如果你不想手动跑命令，也可以在 `astrbot_plugin_xiangqi_arena` 里发送 `启动Pikafish服务`，让插件托管启动本服务。
+
 ## 安装
 
 ```bash
@@ -107,6 +109,23 @@ best_move in legal_moves
   "pikafish_http_url": "http://127.0.0.1:8788/bestmove",
   "pikafish_http_timeout_ms": 8000,
   "pikafish_http_movetime_ms": 500
+}
+```
+
+然后可以发送：
+
+```text
+启动Pikafish服务
+Pikafish服务
+停止Pikafish服务
+重启Pikafish服务
+```
+
+也可以开启自动启动：
+
+```json
+{
+  "pikafish_http_service_auto_start": true
 }
 ```
 

@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import inspect
 import json
+import os
 import random
 import re
+import shutil
+import sys
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
@@ -83,8 +88,16 @@ class XiangqiArenaPlugin(Star):
         self._llm_talk_cooldown_until = 0.0
         self._session_locks: dict[str, asyncio.Lock] = {}
         self._webui_server: XiangqiWebServer | None = None
+        self._pikafish_http_proc: asyncio.subprocess.Process | None = None
+        self._pikafish_http_log_tasks: list[asyncio.Task] = []
+        self._pikafish_http_recent_logs: list[str] = []
 
     async def initialize(self) -> None:
+        if self._pikafish_http_service_auto_start():
+            try:
+                await self._start_managed_pikafish_http_service()
+            except Exception as exc:
+                logger.warning("%s managed pikafish http service failed to auto start: %r", PLUGIN_LOG_NAME, exc)
         if self._webui_enabled():
             await self._ensure_webui_started()
 
@@ -249,14 +262,219 @@ class XiangqiArenaPlugin(Star):
         url = self._webui_server.issue_url(self._session_id(event))
         yield event.plain_result(f"网页棋盘：{url}\n这个链接绑定当前会话，请勿随意转发。")
 
+    @filter.command("Pikafish服务", alias=["pikafish服务", "引擎服务"])
+    async def pikafish_service_status(self, event: AstrMessageEvent):
+        """查看 Pikafish HTTP 服务状态。"""
+        yield event.plain_result(await self._pikafish_http_service_status_text())
+
+    @filter.command("启动Pikafish服务", alias=["启动pikafish服务", "启动引擎服务"])
+    async def start_pikafish_service(self, event: AstrMessageEvent):
+        """由插件启动独立 Pikafish HTTP 服务。"""
+        try:
+            message = await self._start_managed_pikafish_http_service()
+        except Exception as exc:
+            logger.warning("%s managed pikafish http service start failed: %r", PLUGIN_LOG_NAME, exc)
+            message = f"Pikafish HTTP 服务启动失败：{exc}"
+        yield event.plain_result(message)
+
+    @filter.command("停止Pikafish服务", alias=["停止pikafish服务", "停止引擎服务"])
+    async def stop_pikafish_service(self, event: AstrMessageEvent):
+        """停止由插件启动的 Pikafish HTTP 服务。"""
+        message = await self._stop_managed_pikafish_http_service()
+        yield event.plain_result(message)
+
+    @filter.command("重启Pikafish服务", alias=["重启pikafish服务", "重启引擎服务"])
+    async def restart_pikafish_service(self, event: AstrMessageEvent):
+        """重启由插件托管的 Pikafish HTTP 服务。"""
+        await self._stop_managed_pikafish_http_service()
+        try:
+            message = await self._start_managed_pikafish_http_service()
+        except Exception as exc:
+            logger.warning("%s managed pikafish http service restart failed: %r", PLUGIN_LOG_NAME, exc)
+            message = f"Pikafish HTTP 服务重启失败：{exc}"
+        yield event.plain_result(message)
+
     async def terminate(self):
         if self._webui_server is not None:
             await self._webui_server.stop()
             self._webui_server = None
+        await self._stop_managed_pikafish_http_service()
         if self._pikafish_engine is not None:
             await self._pikafish_engine.close()
             self._pikafish_engine = None
         return None
+
+    async def _start_managed_pikafish_http_service(self) -> str:
+        if not self._pikafish_http_url():
+            raise RuntimeError("请先配置 pikafish_http_url，例如 http://127.0.0.1:8788/bestmove")
+        proc = self._pikafish_http_proc
+        if proc is not None and proc.returncode is None:
+            return f"Pikafish HTTP 服务已由插件托管运行中：{self._pikafish_http_health_url()}"
+        ok, _detail = await self._check_pikafish_http_health(timeout=0.8)
+        if ok:
+            return f"Pikafish HTTP 服务已经可访问：{self._pikafish_http_health_url()}\n当前没有插件托管进程，可能是 systemd 或手动命令启动的服务。"
+
+        script = self._pikafish_http_service_script()
+        if not script.exists():
+            raise RuntimeError(f"找不到服务脚本：{script}")
+
+        python = self._pikafish_http_service_python()
+        if os.path.sep not in python and shutil.which(python) is None:
+            raise RuntimeError(f"找不到 Python 可执行文件：{python}")
+
+        host, port = self._pikafish_http_service_host_port()
+        self._pikafish_http_recent_logs.clear()
+        env = os.environ.copy()
+        env.update(
+            {
+                "PIKAFISH_HOST": host,
+                "PIKAFISH_PORT": str(port),
+                "PIKAFISH_PATH": self._str_config("pikafish_http_service_pikafish_path") or self._str_config("pikafish_path", "pikafish") or "pikafish",
+                "PIKAFISH_WORKING_DIR": self._str_config("pikafish_working_dir"),
+                "PIKAFISH_EVAL_FILE": self._str_config("pikafish_eval_file"),
+                "PIKAFISH_THREADS": str(self._int_config("pikafish_threads", 1, 1, 8)),
+                "PIKAFISH_HASH_MB": str(self._int_config("pikafish_hash_mb", 16, 8, 1024)),
+                "PIKAFISH_MOVETIME_MS": str(self._pikafish_http_movetime_ms()),
+                "PIKAFISH_STARTUP_TIMEOUT": str(self._float_config("pikafish_startup_timeout", 5.0, 1.0, 30.0)),
+                "PIKAFISH_MOVE_OVERHEAD_MS": str(self._int_config("pikafish_move_overhead_ms", 30, 0, 1000)),
+                "PIKAFISH_LOG_LEVEL": self._str_config("pikafish_http_service_log_level", "INFO") or "INFO",
+            }
+        )
+        self._pikafish_http_proc = await asyncio.create_subprocess_exec(
+            python,
+            str(script),
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(script.parent),
+            env=env,
+        )
+        self._pikafish_http_log_tasks = [
+            asyncio.create_task(self._drain_pikafish_http_service_stream(self._pikafish_http_proc.stdout, "stdout")),
+            asyncio.create_task(self._drain_pikafish_http_service_stream(self._pikafish_http_proc.stderr, "stderr")),
+        ]
+        await asyncio.sleep(0.7)
+        if self._pikafish_http_proc.returncode is not None:
+            code = self._pikafish_http_proc.returncode
+            await self._cleanup_pikafish_http_process_refs()
+            tail = self._pikafish_http_log_tail()
+            raise RuntimeError(f"服务进程已退出，returncode={code}。{tail}")
+
+        ok, detail = await self._check_pikafish_http_health(timeout=2.0)
+        suffix = "" if ok else f"\n注意：健康检查暂未通过：{detail}"
+        use_hint = ""
+        if "pikafish_http" not in self._engine_order():
+            use_hint = "\n当前引擎链还不会使用它，请确认 engine_backend=auto/pikafish_http 且 enable_pikafish_http_engine=true。"
+        return f"Pikafish HTTP 服务已启动：{self._pikafish_http_health_url()}{suffix}{use_hint}"
+
+    async def _stop_managed_pikafish_http_service(self) -> str:
+        proc = self._pikafish_http_proc
+        if proc is None:
+            await self._cleanup_pikafish_http_process_refs()
+            return "当前没有由插件托管运行的 Pikafish HTTP 服务。"
+        if proc.returncode is None:
+            proc.terminate()
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=3.0)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+        await self._cleanup_pikafish_http_process_refs()
+        return "已停止由插件托管的 Pikafish HTTP 服务。"
+
+    async def _cleanup_pikafish_http_process_refs(self) -> None:
+        for task in self._pikafish_http_log_tasks:
+            task.cancel()
+        for task in self._pikafish_http_log_tasks:
+            with contextlib.suppress(BaseException):
+                await task
+        self._pikafish_http_log_tasks = []
+        self._pikafish_http_proc = None
+
+    async def _drain_pikafish_http_service_stream(self, stream, name: str) -> None:
+        if stream is None:
+            return
+        try:
+            while True:
+                raw = await stream.readline()
+                if not raw:
+                    return
+                text = raw.decode("utf-8", errors="ignore").strip()
+                if not text:
+                    continue
+                line = f"{name}: {text}"
+                self._pikafish_http_recent_logs.append(line)
+                self._pikafish_http_recent_logs = self._pikafish_http_recent_logs[-20:]
+                if name == "stderr":
+                    logger.info("%s managed pikafish http %s", PLUGIN_LOG_NAME, line)
+                else:
+                    logger.debug("%s managed pikafish http %s", PLUGIN_LOG_NAME, line)
+        except asyncio.CancelledError:
+            return
+
+    async def _pikafish_http_service_status_text(self) -> str:
+        proc = self._pikafish_http_proc
+        if proc is not None and proc.returncode is None:
+            managed = "插件托管：运行中"
+        elif proc is not None:
+            managed = f"插件托管：已退出 returncode={proc.returncode}"
+        else:
+            managed = "插件托管：未运行"
+        ok, detail = await self._check_pikafish_http_health(timeout=2.0)
+        health = "可访问" if ok else f"不可访问：{detail}"
+        return (
+            f"{managed}\n"
+            f"HTTP 地址：{self._pikafish_http_url() or '未配置'}\n"
+            f"健康检查：{health}\n"
+            f"当前引擎链：{', '.join(self._engine_order())}"
+        )
+
+    async def _check_pikafish_http_health(self, timeout: float = 2.0) -> tuple[bool, str]:
+        try:
+            import aiohttp
+        except ImportError:
+            return False, "aiohttp 未安装"
+        url = self._pikafish_http_health_url()
+        if not url:
+            return False, "未配置 pikafish_http_url"
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
+                async with session.get(url) as response:
+                    text = await response.text()
+                    if response.status >= 400:
+                        return False, f"HTTP {response.status} {text[:120]}"
+                    return True, text[:120]
+        except Exception as exc:
+            return False, str(exc)
+
+    def _pikafish_http_health_url(self) -> str:
+        raw_url = self._pikafish_http_url()
+        if not raw_url:
+            return ""
+        parsed = urlparse(raw_url)
+        if not parsed.scheme or not parsed.netloc:
+            return ""
+        return urlunparse((parsed.scheme, parsed.netloc, "/health", "", "", ""))
+
+    def _pikafish_http_service_host_port(self) -> tuple[str, int]:
+        raw_url = self._pikafish_http_url()
+        parsed = urlparse(raw_url)
+        if parsed.scheme not in {"http", ""}:
+            raise RuntimeError("插件托管的 Pikafish HTTP 服务只支持普通 http 地址。")
+        host = parsed.hostname or "127.0.0.1"
+        port = parsed.port or 8788
+        return host, port
+
+    def _pikafish_http_service_script(self) -> Path:
+        return Path(__file__).resolve().parent / "tools" / "pikafish_http_service" / "pikafish_http_service.py"
+
+    def _pikafish_http_service_python(self) -> str:
+        return self._str_config("pikafish_http_service_python") or sys.executable or "python3"
+
+    def _pikafish_http_log_tail(self) -> str:
+        if not self._pikafish_http_recent_logs:
+            return "暂无服务日志。"
+        return "最近日志：" + " | ".join(self._pikafish_http_recent_logs[-5:])
 
     async def _ensure_webui_started(self) -> None:
         if self._webui_server is not None and self._webui_server.is_running:
@@ -755,6 +973,9 @@ class XiangqiArenaPlugin(Star):
 
     def _pikafish_http_failure_cooldown_seconds(self) -> int:
         return self._int_config("pikafish_http_failure_cooldown_seconds", 0, 0, 3600)
+
+    def _pikafish_http_service_auto_start(self) -> bool:
+        return self._bool_config("pikafish_http_service_auto_start", False)
 
     def _pikafish_http_url(self) -> str:
         return self._str_config("pikafish_http_url")

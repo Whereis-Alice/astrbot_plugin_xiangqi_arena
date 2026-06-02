@@ -138,6 +138,36 @@
     "default": 0,
     "hint": "HTTP 服务超时、不可达或返回非法走法后，在这段时间内直接尝试下一个引擎。默认 0 为关闭冷却。"
   },
+  "pikafish_http_service_auto_start": {
+    "description": "插件启动时自动拉起 HTTP 服务",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后插件初始化时会启动 tools/pikafish_http_service 中的独立服务。需要先配置 pikafish_http_url。若使用 systemd 手动运行，保持关闭即可。"
+  },
+  "pikafish_http_service_python": {
+    "description": "HTTP 服务 Python 路径",
+    "type": "string",
+    "default": "",
+    "hint": "留空使用 AstrBot 当前 Python。只有当前 Python 不能运行 aiohttp 服务时才需要手动填写，例如 /path/to/venv/bin/python。"
+  },
+  "pikafish_http_service_pikafish_path": {
+    "description": "HTTP 服务使用的 Pikafish 路径",
+    "type": "string",
+    "default": "",
+    "hint": "留空复用 pikafish_path。需要让共享服务使用另一份 Pikafish 可执行文件时再填写。"
+  },
+  "pikafish_http_service_log_level": {
+    "description": "HTTP 服务日志等级",
+    "type": "string",
+    "default": "INFO",
+    "options": [
+      "DEBUG",
+      "INFO",
+      "WARNING",
+      "ERROR"
+    ],
+    "hint": "插件托管 HTTP 服务时传给服务进程的日志等级。"
+  },
   "enable_pikafish_engine": {
     "description": "启用 Pikafish",
     "type": "bool",

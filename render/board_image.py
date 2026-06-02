@@ -55,7 +55,7 @@ def render_board(board: Board, output_path: Path, scale: int = 1) -> Path:
     for idx in range(9):
         label = chr(ord("a") + idx)
         x = left + idx * cell
-        _draw_centered(draw, (x, top - 72 * scale), label, font_small, LINE_COLOR)
+        _draw_centered(draw, (x, top - 30 * scale), label, font_small, LINE_COLOR)
         _draw_centered(draw, (x, bottom + 30 * scale), label, font_small, LINE_COLOR)
     for idx in range(10):
         y = top + idx * cell
@@ -111,9 +111,12 @@ def _draw_centered(
     fill: str,
 ) -> None:
     bbox = draw.textbbox((0, 0), text, font=font)
-    width = bbox[2] - bbox[0]
-    height = bbox[3] - bbox[1]
-    draw.text((center[0] - width / 2, center[1] - height / 2), text, fill=fill, font=font)
+    draw.text(
+        (center[0] - (bbox[0] + bbox[2]) / 2, center[1] - (bbox[1] + bbox[3]) / 2),
+        text,
+        fill=fill,
+        font=font,
+    )
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:

@@ -431,10 +431,31 @@ class XiangqiArenaPlugin(Star):
             cooldown = self._xqwlight_failure_cooldown_seconds()
         else:
             return
-        if cooldown <= 0:
-            return
-        self._engine_cooldowns[backend] = time.monotonic() + cooldown
-        logger.warning("%s %s cooled down for %ss after failure: %r", PLUGIN_LOG_NAME, backend, cooldown, exc)
+        if cooldown > 0:
+            self._engine_cooldowns[backend] = time.monotonic() + cooldown
+        logger.warning(
+            "%s %s engine failed; cooldown=%ss; config=%s; error=%r",
+            PLUGIN_LOG_NAME,
+            backend,
+            cooldown,
+            self._engine_log_config(backend),
+            exc,
+        )
+
+    def _engine_log_config(self, backend: str) -> str:
+        if backend == "pikafish":
+            signature = self._pikafish_signature_values()
+            return (
+                f"path={signature[0]!r}, working_dir={signature[1]!r}, eval_file={signature[2]!r}, "
+                f"threads={signature[3]}, hash_mb={signature[4]}, movetime_ms={signature[5]}, "
+                f"startup_timeout={signature[6]}, move_overhead_ms={signature[7]}"
+            )
+        if backend == "xqwlight":
+            return (
+                f"jar_path={self._xqwlight_jar_path()!r}, depth={self._xqwlight_depth()}, "
+                f"timeout_ms={self._xqwlight_timeout_ms()}"
+            )
+        return "builtin"
 
     def _merge_engine_reason(self, reason: str, failures: list[str]) -> str:
         if not failures:

@@ -509,9 +509,13 @@ WEB_HTML = r"""<!doctype html>
     }
 
     .intersection,
-    .intersection:disabled {
+    .intersection:disabled,
+    body[data-theme="dark"] .intersection,
+    body[data-theme="dark"] .intersection:disabled {
       border: 0;
       background: transparent;
+      min-height: 0;
+      color: inherit;
     }
 
     .intersection.selected {
@@ -587,6 +591,14 @@ WEB_HTML = r"""<!doctype html>
       line-height: 1.2;
     }
 
+    .turn-panel {
+      padding: 10px 12px;
+    }
+
+    .turn-panel h2 {
+      margin-bottom: 6px;
+    }
+
     .controls {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -602,7 +614,7 @@ WEB_HTML = r"""<!doctype html>
     .danger:hover { border-color: var(--warn); color: var(--warn); }
 
     .message {
-      min-height: 36px;
+      min-height: 26px;
       color: var(--muted);
       font-size: 14px;
       line-height: 1.45;
@@ -783,7 +795,7 @@ WEB_HTML = r"""<!doctype html>
             <button class="danger" data-action="resign">认输</button>
           </div>
         </section>
-        <section class="panel">
+        <section class="panel turn-panel">
           <h2>回合</h2>
           <div class="message" id="message"></div>
         </section>
@@ -1144,7 +1156,8 @@ WEB_HTML = r"""<!doctype html>
           setMessage(data.error || "操作失败。", true);
         } else {
           const talk = Array.isArray(data.talk) && data.talk.length ? "\n" + data.talk.join("\n") : "";
-          const suffix = data.pending_bot ? "\nBot 正在思考..." : "";
+          const botName = (data.state && data.state.bot_name) || (state && state.bot_name) || "Bot";
+          const suffix = data.pending_bot ? "\n" + botName + " 正在思考..." : "";
           setMessage((data.message || "") + talk + suffix);
         }
       } catch (err) {
@@ -1164,7 +1177,8 @@ WEB_HTML = r"""<!doctype html>
         playSound(state.last_move && state.last_move.captured ? "capture" : "move");
         lastMoveKey = nextKey;
       }
-      if (!state.processing && messageEl.textContent.includes("Bot 正在思考")) {
+      const botName = (state && state.bot_name) || "Bot";
+      if (!state.processing && messageEl.textContent.includes(botName + " 正在思考")) {
         setMessage("");
       }
       render();

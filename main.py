@@ -47,6 +47,16 @@ PLUGIN_LOG_NAME = "xiangqi_arena"
 BOARD_CONTEXT_MARKER = "[xiangqi_arena_board_context]"
 ACTIVE_GAME_RESET_MESSAGE = "当前会话已有未结束的象棋对局。发送“棋盘”查看，发送“重开”强制重置。"
 CHINESE_DIGITS = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
+DEFAULT_WEBUI_PLAYER_TALK_TEMPLATES = "\n".join(
+    [
+        "先稳住这一手。",
+        "我走 {notation}，看看你怎么接。",
+        "这步先把阵型展开。",
+        "{side}这边先不急，走 {notation}。",
+        "我先试试 {notation}。",
+        "这一步先留点余地。",
+    ]
+)
 
 
 @dataclass(slots=True)
@@ -994,7 +1004,9 @@ class XiangqiArenaPlugin(Star):
         status_text = "当前没有对局。" if board is None else "本局结束。" if ended else self._webui_status_text(display_board)
         in_check = bool(board is not None and not ended and is_in_check(display_board, display_board.side_to_move))
         processing = "" if ended else self._webui_processing.get(session_id, "")
-        processing_label = {"engine": "Bot 正在思考", "talk": "Bot 正在组织台词"}.get(processing, "")
+        player_name = self._webui_player_name()
+        bot_name = self._webui_bot_name()
+        processing_label = {"engine": f"{bot_name} 正在思考", "talk": f"{bot_name} 正在组织台词"}.get(processing, "")
         ply_count = len(display_board.history)
         round_count = (ply_count + 1) // 2 if active else 0
         progress_label = "未开局" if board is None else "本局结束" if ended else f"第 {max(round_count, 1)} 回合 · 已走 {ply_count} 手"
@@ -1016,8 +1028,10 @@ class XiangqiArenaPlugin(Star):
             "turn_owner": "player" if active and display_board.side_to_move == player_color else "bot",
             "player_color": player_color,
             "player_label": self._side_label(player_color),
+            "player_name": player_name,
             "bot_color": bot_color,
             "bot_label": self._side_label(bot_color),
+            "bot_name": bot_name,
             "in_check": in_check,
             "can_undo": active and len(display_board.history) >= 2,
             "last_move": None if display_board.last_move is None else self._serialize_move(display_board.last_move),
@@ -1150,8 +1164,9 @@ class XiangqiArenaPlugin(Star):
                 return
 
     def _format_webui_player_talk(self, move: Move, side: str) -> str:
+        template = self._select_webui_player_talk_template(move)
         return self._render_template(
-            self._webui_player_talk_template(),
+            template,
             {
                 "move": describe_move(move),
                 "notation": self._format_chinese_move(move, side),
@@ -1159,6 +1174,14 @@ class XiangqiArenaPlugin(Star):
                 "side": self._side_label(side),
             },
         )
+
+    def _select_webui_player_talk_template(self, move: Move) -> str:
+        raw = self._webui_player_talk_template()
+        templates = [part.strip() for part in re.split(r"[\n|]+", raw) if part.strip()]
+        if not templates:
+            templates = [part.strip() for part in DEFAULT_WEBUI_PLAYER_TALK_TEMPLATES.splitlines() if part.strip()]
+        key = f"{move.piece}:{format_coord(move.from_pos)}:{format_coord(move.to_pos)}"
+        return templates[sum(ord(ch) for ch in key) % len(templates)]
 
     def _format_webui_bot_default_talk(self, move: Move, side: str) -> str:
         return f"我走 {self._format_chinese_move(move, side)}，先稳一手。"
@@ -1364,7 +1387,7 @@ class XiangqiArenaPlugin(Star):
         return self._str_config("webui_bot_name", "爱丽丝") or "爱丽丝"
 
     def _webui_player_talk_template(self) -> str:
-        return self._str_config("webui_player_talk_template", "先这样走一步。") or "先这样走一步。"
+        return self._str_config("webui_player_talk_template", DEFAULT_WEBUI_PLAYER_TALK_TEMPLATES) or DEFAULT_WEBUI_PLAYER_TALK_TEMPLATES
 
     def _webui_enabled(self) -> bool:
         return self._bool_config("webui_enabled", True)

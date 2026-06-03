@@ -111,7 +111,7 @@ def render_board(board: Board, output_path: Path, scale: int = 1, theme: str = "
 
     image = Image.new("RGB", (width, height), colors["page"])
     draw = ImageDraw.Draw(image)
-    font_piece = _load_font(36 * scale)
+    font_piece = _load_font(32 * scale)
     font_small = _load_font(20 * scale)
     font_title = _load_font(32 * scale)
 
@@ -144,7 +144,7 @@ def render_board(board: Board, output_path: Path, scale: int = 1, theme: str = "
         for x, piece in enumerate(row):
             if piece is None:
                 continue
-            _draw_piece(draw, piece, (x, y), left, top, cell, font_piece, colors)
+            _draw_piece(draw, piece, (x, y), left, top, cell, font_piece, scale, colors)
 
     status = f"当前行棋: {'红方' if board.side_to_move == RED else '黑方'}"
     if board.last_move is not None:
@@ -259,23 +259,52 @@ def _draw_mark(draw: ImageDraw.ImageDraw, cx: int, cy: int, board_x: int, scale:
         draw.line((x0, y0, x0, y0 + sy * arm), fill=colors["line"], width=line_w)
 
 
-def _draw_piece(draw: ImageDraw.ImageDraw, piece: str, pos: tuple[int, int], left: int, top: int, cell: int, font: ImageFont.FreeTypeFont | ImageFont.ImageFont, colors: dict[str, str]) -> None:
+def _draw_piece(
+    draw: ImageDraw.ImageDraw,
+    piece: str,
+    pos: tuple[int, int],
+    left: int,
+    top: int,
+    cell: int,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    scale: int,
+    colors: dict[str, str],
+) -> None:
     x, y = pos
     cx = left + x * cell
     cy = top + y * cell
-    radius = int(cell * 0.38)
+    radius = int(cell * 0.36)
     bbox = (cx - radius, cy - radius, cx + radius, cy + radius)
-    shadow = (bbox[0] + 3, bbox[1] + 4, bbox[2] + 3, bbox[3] + 4)
-    draw.ellipse(shadow, fill=colors["piece_shadow"])
+    shadow = (bbox[0] + 3 * scale, bbox[1] + 5 * scale, bbox[2] + 3 * scale, bbox[3] + 5 * scale)
+    draw.ellipse(shadow, fill=_blend_hex(colors["piece_shadow"], "#000000", 0.16))
+
     fill = colors["piece_fill"]
+    base = colors["piece_base"]
     outline = colors["red"] if piece_color(piece) == RED else colors["black"]
     text_color = outline
-    draw.ellipse(bbox, fill=colors["piece_base"], outline=colors["board_edge"], width=2)
-    inner = (bbox[0] + 4, bbox[1] + 4, bbox[2] - 4, bbox[3] - 4)
-    draw.ellipse(inner, fill=fill, outline=outline, width=3)
-    ring = (bbox[0] + 10, bbox[1] + 10, bbox[2] - 10, bbox[3] - 10)
-    draw.ellipse(ring, outline=outline, width=1)
-    _draw_centered(draw, (cx, cy), PIECE_NAMES[piece], font, text_color)
+
+    draw.ellipse(bbox, fill=base, outline=_blend_hex(colors["board_edge"], outline, 0.18), width=max(2 * scale, 1))
+    for step in range(7):
+        inset = int((4 + step * 2) * scale)
+        ratio = (step + 1) / 7
+        tone = _blend_hex(base, fill, ratio)
+        draw.ellipse((bbox[0] + inset, bbox[1] + inset, bbox[2] - inset, bbox[3] - inset), fill=tone)
+
+    inner = (bbox[0] + 5 * scale, bbox[1] + 5 * scale, bbox[2] - 5 * scale, bbox[3] - 5 * scale)
+    ring = (bbox[0] + 12 * scale, bbox[1] + 12 * scale, bbox[2] - 12 * scale, bbox[3] - 12 * scale)
+    shine = (bbox[0] + 9 * scale, bbox[1] + 8 * scale, bbox[2] - 9 * scale, bbox[3] - 9 * scale)
+    draw.ellipse(inner, outline=outline, width=max(2 * scale, 1))
+    draw.ellipse(ring, outline=_blend_hex(outline, fill, 0.34), width=max(scale, 1))
+    draw.arc(shine, 205, 300, fill=_blend_hex(fill, "#ffffff", 0.46), width=max(scale, 1))
+    _draw_centered(
+        draw,
+        (cx, cy - int(0.5 * scale)),
+        PIECE_NAMES[piece],
+        font,
+        text_color,
+        stroke_width=max(scale, 1),
+        stroke_fill=_blend_hex(fill, "#ffffff", 0.36),
+    )
 
 
 def _highlight_cell(draw: ImageDraw.ImageDraw, pos: tuple[int, int], left: int, top: int, cell: int, colors: dict[str, str]) -> None:
@@ -292,6 +321,8 @@ def _draw_centered(
     text: str,
     font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
     fill: str,
+    stroke_width: int = 0,
+    stroke_fill: str | None = None,
 ) -> None:
     bbox = draw.textbbox((0, 0), text, font=font)
     draw.text(
@@ -299,7 +330,29 @@ def _draw_centered(
         text,
         fill=fill,
         font=font,
+        stroke_width=stroke_width,
+        stroke_fill=stroke_fill or fill,
     )
+
+
+def _blend_hex(left: str, right: str, ratio: float) -> str:
+    ratio = max(0.0, min(1.0, ratio))
+    lr, lg, lb = _hex_to_rgb(left)
+    rr, rg, rb = _hex_to_rgb(right)
+    return "#{:02x}{:02x}{:02x}".format(
+        round(lr + (rr - lr) * ratio),
+        round(lg + (rg - lg) * ratio),
+        round(lb + (rb - lb) * ratio),
+    )
+
+
+def _hex_to_rgb(value: str) -> tuple[int, int, int]:
+    text = value.strip().lstrip("#")
+    if len(text) == 3:
+        text = "".join(ch * 2 for ch in text)
+    if len(text) != 6:
+        return 0, 0, 0
+    return int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:

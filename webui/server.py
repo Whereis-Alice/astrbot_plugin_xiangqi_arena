@@ -224,13 +224,7 @@ WEB_HTML = r"""<!doctype html>
       --grid: min(7.2vw, 62px);
     }
 
-    body[data-theme="jade"] {
-      --bg: #e8f0ea;
-      --panel: #fbfdf9;
-      --text: #14251e;
-      --muted: #61736a;
-      --accent: #247a67;
-      --accent-weak: #dcefe9;
+    body[data-board-theme="jade"] {
       --board-outer: #dcebdc;
       --board-outer-edge: #2d6b55;
       --board-panel: #d8e4bd;
@@ -251,11 +245,14 @@ WEB_HTML = r"""<!doctype html>
       --line: #d0a867;
       --muted: #9cafb6;
       --text: #e8edf0;
-      --red: #ff5d72;
-      --black: #e8ddc6;
       --accent: #63cdb6;
       --accent-weak: rgba(99, 205, 182, .16);
       --warn: #f0a66e;
+    }
+
+    body[data-board-theme="dark"] {
+      --red: rgba(228, 64, 82, .74);
+      --black: rgba(64, 55, 45, .72);
       --board-outer: #1b2632;
       --board-outer-edge: #9f7943;
       --board-panel: #23313a;
@@ -266,18 +263,12 @@ WEB_HTML = r"""<!doctype html>
       --board-river: #2b3f43;
       --board-line: #d0a867;
       --board-text: #e5bd77;
-      --piece-fill: #1b232b;
-      --piece-base: #6e5736;
-      --piece-shadow: rgba(0, 0, 0, .48);
+      --piece-fill: #f3e1bd;
+      --piece-base: #a77a4f;
+      --piece-shadow: rgba(0, 0, 0, .45);
     }
 
-    body[data-theme="paper"] {
-      --bg: #eee9dd;
-      --panel: #fffaf0;
-      --text: #2b2118;
-      --muted: #766b5e;
-      --accent: #7d6140;
-      --accent-weak: #eee3ce;
+    body[data-board-theme="paper"] {
       --board-outer: #f6ecd2;
       --board-outer-edge: #7c5b32;
       --board-panel: #eee0bd;
@@ -382,7 +373,7 @@ WEB_HTML = r"""<!doctype html>
 
     .layout {
       display: grid;
-      grid-template-columns: minmax(560px, 1fr) minmax(320px, 400px);
+      grid-template-columns: minmax(560px, 1fr) minmax(340px, 420px);
       gap: 18px;
       align-items: start;
     }
@@ -418,9 +409,11 @@ WEB_HTML = r"""<!doctype html>
       width: min(100%, 900px, calc((100vh - 142px) * 1000 / 1120));
       min-width: 420px;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 12px;
+      grid-template-columns: 1fr;
+      gap: 7px;
+      justify-items: center;
       align-items: center;
+      text-align: center;
       color: var(--text);
     }
 
@@ -452,6 +445,8 @@ WEB_HTML = r"""<!doctype html>
       display: grid;
       gap: 5px;
       min-width: 0;
+      width: min(100%, 420px);
+      justify-items: center;
     }
 
     .progress-text {
@@ -460,10 +455,12 @@ WEB_HTML = r"""<!doctype html>
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      text-align: center;
     }
 
     .progress-track {
       height: 5px;
+      width: 100%;
       border-radius: 999px;
       background: rgba(88, 73, 48, .16);
       overflow: hidden;
@@ -511,8 +508,8 @@ WEB_HTML = r"""<!doctype html>
       z-index: 4;
     }
 
-    body[data-theme] .intersection,
-    body[data-theme] .intersection:disabled {
+    .intersection,
+    .intersection:disabled {
       border: 0;
       background: transparent;
     }
@@ -545,7 +542,7 @@ WEB_HTML = r"""<!doctype html>
       border: 2px solid currentColor;
       background:
         radial-gradient(circle at 32% 26%, #fffaf0 0 22%, var(--piece-fill) 52%, var(--piece-base) 100%);
-      font-size: clamp(20px, 3.6vw, 34px);
+      font-size: clamp(17px, 2.9vw, 28px);
       font-weight: 700;
       line-height: 1;
       z-index: 1;
@@ -558,6 +555,12 @@ WEB_HTML = r"""<!doctype html>
 
     .intersection:hover .piece { transform: translateY(-1px); }
     .intersection.selected .piece { transform: translateY(-2px) scale(1.06); filter: saturate(1.12); }
+    .piece-text {
+      display: block;
+      line-height: 1;
+      opacity: .68;
+      transform: translateY(-0.035em);
+    }
     .piece.red { color: var(--red); }
     .piece.black { color: var(--black); }
     .piece.dim { opacity: .68; }
@@ -626,10 +629,10 @@ WEB_HTML = r"""<!doctype html>
     .log-card {
       border: 1px solid rgba(110, 125, 116, .18);
       border-radius: 8px;
-      padding: 9px 10px;
+      padding: 10px 11px;
       background: rgba(255, 255, 255, .58);
       display: grid;
-      gap: 6px;
+      gap: 7px;
     }
 
     body[data-theme="dark"] .log-card {
@@ -640,6 +643,43 @@ WEB_HTML = r"""<!doctype html>
     .log-title {
       font-weight: 700;
       color: var(--text);
+    }
+
+    .timeline-meta {
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .timeline-side.red { color: var(--red); }
+    .timeline-side.black { color: var(--black); }
+    body[data-theme="dark"] .timeline-side.black { color: #d8c08a; }
+
+    .timeline-actor {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .timeline-move {
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .timeline-coord {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .timeline-talk {
+      color: var(--muted);
+      line-height: 1.45;
+      overflow-wrap: anywhere;
     }
 
     .log-row {
@@ -700,8 +740,15 @@ WEB_HTML = r"""<!doctype html>
       <h1>象棋竞技场</h1>
       <div class="top-actions">
         <label class="theme-control">
-          <span>皮肤</span>
-          <select id="themeSelect" aria-label="棋盘皮肤">
+          <span>页面</span>
+          <select id="pageThemeSelect" aria-label="页面主题">
+            <option value="light">日间</option>
+            <option value="dark">夜间</option>
+          </select>
+        </label>
+        <label class="theme-control">
+          <span>棋盘</span>
+          <select id="boardThemeSelect" aria-label="棋盘皮肤">
             <option value="classic">经典</option>
             <option value="jade">青玉</option>
             <option value="dark">夜战</option>
@@ -741,12 +788,8 @@ WEB_HTML = r"""<!doctype html>
           <div class="message" id="message"></div>
         </section>
         <section class="panel">
-          <h2>最近走法</h2>
-          <div class="log" id="moveLog"></div>
-        </section>
-        <section class="panel">
-          <h2>Bot 台词</h2>
-          <div class="log" id="talkLog"></div>
+          <h2>棋局记录</h2>
+          <div class="log" id="timelineLog"></div>
         </section>
       </aside>
     </section>
@@ -756,9 +799,9 @@ WEB_HTML = r"""<!doctype html>
     const boardEl = document.getElementById("board");
     const statusEl = document.getElementById("status");
     const messageEl = document.getElementById("message");
-    const moveLogEl = document.getElementById("moveLog");
-    const talkLogEl = document.getElementById("talkLog");
-    const themeSelect = document.getElementById("themeSelect");
+    const timelineLogEl = document.getElementById("timelineLog");
+    const pageThemeSelect = document.getElementById("pageThemeSelect");
+    const boardThemeSelect = document.getElementById("boardThemeSelect");
     const soundToggle = document.getElementById("soundToggle");
     const turnPillEl = document.getElementById("turnPill");
     const progressTextEl = document.getElementById("progressText");
@@ -773,7 +816,7 @@ WEB_HTML = r"""<!doctype html>
 
     const files = ["a","b","c","d","e","f","g","h","i"];
     const ranks = ["0","1","2","3","4","5","6","7","8","9"];
-    const boardView = { w: 1000, h: 1120, left: 130, top: 130, cell: 82 };
+    const boardView = { w: 1000, h: 1120, left: 172, top: 130, cell: 82 };
 
     function coord(x, y) { return files[x] + ranks[y]; }
     function pointX(x) { return boardView.left + x * boardView.cell; }
@@ -781,16 +824,24 @@ WEB_HTML = r"""<!doctype html>
     function pctX(value) { return (value / boardView.w * 100) + "%"; }
     function pctY(value) { return (value / boardView.h * 100) + "%"; }
 
-    function applyTheme(theme) {
-      const selectedTheme = ["classic", "jade", "dark", "paper"].includes(theme) ? theme : "classic";
+    function applyPageTheme(theme) {
+      const selectedTheme = ["light", "dark"].includes(theme) ? theme : "light";
       document.body.dataset.theme = selectedTheme;
-      themeSelect.value = selectedTheme;
-      localStorage.setItem("xiangqi_theme", selectedTheme);
+      pageThemeSelect.value = selectedTheme;
+      localStorage.setItem("xiangqi_page_theme", selectedTheme);
+    }
+
+    function applyBoardTheme(theme) {
+      const selectedTheme = ["classic", "jade", "dark", "paper"].includes(theme) ? theme : "classic";
+      document.body.dataset.boardTheme = selectedTheme;
+      boardThemeSelect.value = selectedTheme;
+      localStorage.setItem("xiangqi_board_theme", selectedTheme);
     }
 
     function updateSoundButton() {
       soundToggle.textContent = soundEnabled ? "声" : "静";
       soundToggle.classList.toggle("primary", soundEnabled);
+      soundToggle.title = soundEnabled ? "关闭落子音效" : "开启落子音效";
     }
 
     function ensureAudio() {
@@ -798,8 +849,14 @@ WEB_HTML = r"""<!doctype html>
       const Audio = window.AudioContext || window.webkitAudioContext;
       if (!Audio) return null;
       if (!audioCtx) audioCtx = new Audio();
-      if (audioCtx.state === "suspended") audioCtx.resume();
+      if (audioCtx.state === "suspended") void audioCtx.resume();
       return audioCtx;
+    }
+
+    function unlockAudio() {
+      const ctx = ensureAudio();
+      if (!ctx) return;
+      if (ctx.state === "suspended") void ctx.resume();
     }
 
     function playTone(start, freq, duration, gainValue, type = "triangle") {
@@ -823,11 +880,11 @@ WEB_HTML = r"""<!doctype html>
       if (!ctx) return;
       const now = ctx.currentTime;
       if (kind === "capture") {
-        playTone(now, 220, .08, .09, "square");
-        playTone(now + .055, 150, .10, .075, "triangle");
+        playTone(now, 220, .08, .13, "square");
+        playTone(now + .055, 150, .10, .11, "triangle");
       } else {
-        playTone(now, 180, .075, .065, "triangle");
-        playTone(now + .045, 260, .06, .04, "sine");
+        playTone(now, 180, .075, .10, "triangle");
+        playTone(now + .045, 260, .06, .065, "sine");
       }
     }
 
@@ -870,8 +927,7 @@ WEB_HTML = r"""<!doctype html>
         row.forEach((piece, x) => addIntersection(piece, x, y, legal, last));
       });
 
-      renderMoveLog(moveLogEl, state.move_log);
-      renderTalkLog(talkLogEl, state.talk_log);
+      renderTimeline(timelineLogEl, state.timeline);
       document.querySelector('[data-action="undo"]').disabled = busy || !state.can_undo;
       document.querySelector('[data-action="hint"]').disabled = busy || !state.game_active || state.turn_owner !== "player";
       document.querySelector('[data-action="resign"]').disabled = busy || !state.game_active;
@@ -941,12 +997,12 @@ WEB_HTML = r"""<!doctype html>
 
     function addCoordinates() {
       files.forEach((file, x) => {
-        addCoord(file, pointX(x), 72);
-        addCoord(file, pointX(x), 926);
+        addCoord(file, pointX(x), pointY(0) - 58);
+        addCoord(file, pointX(x), pointY(9) + 58);
       });
       ranks.forEach((rank, y) => {
-        addCoord(rank, 84, pointY(y));
-        addCoord(rank, 816, pointY(y));
+        addCoord(rank, pointX(0) - 58, pointY(y));
+        addCoord(rank, pointX(8) + 58, pointY(y));
       });
     }
 
@@ -975,67 +1031,58 @@ WEB_HTML = r"""<!doctype html>
       if (piece) {
         const pieceNode = document.createElement("div");
         pieceNode.className = "piece " + piece.color + (isOwnPiece(piece) ? "" : " dim");
-        pieceNode.textContent = piece.name;
+        const textNode = document.createElement("span");
+        textNode.className = "piece-text";
+        textNode.textContent = piece.name;
+        pieceNode.appendChild(textNode);
         node.appendChild(pieceNode);
       }
       boardEl.appendChild(node);
     }
 
-    function renderMoveLog(target, items) {
+    function renderTimeline(target, items) {
       target.innerHTML = "";
       const list = items || [];
       list.slice().reverse().forEach((item, offset) => {
-        const index = list.length - offset;
         const card = document.createElement("div");
         card.className = "log-card";
-        const title = document.createElement("div");
-        title.className = "log-title";
-        title.textContent = "#" + index + " 回合";
-        card.appendChild(title);
-        String(item).split(/[；;]/).filter(Boolean).forEach(part => {
-          const row = document.createElement("div");
-          row.className = "log-row";
-          const move = part.match(/[a-i][0-9]\s*->\s*[a-i][0-9]/i);
-          if (move) {
-            const chip = document.createElement("span");
-            chip.className = "move-chip";
-            chip.textContent = move[0].replace(/\s+/g, " ");
-            row.appendChild(chip);
-            row.appendChild(document.createTextNode(part.replace(move[0], "").trim()));
-          } else {
-            row.textContent = part.trim();
-          }
-          card.appendChild(row);
-        });
+        const meta = document.createElement("div");
+        meta.className = "timeline-meta";
+        const sideClass = item.side === "red" ? "red" : item.side === "black" ? "black" : "";
+        const indexNode = document.createElement("span");
+        indexNode.textContent = "#" + (item.index || (list.length - offset));
+        const sideNode = document.createElement("span");
+        sideNode.className = "timeline-side " + sideClass;
+        sideNode.textContent = item.side_short || item.side_label || "";
+        const actorNode = document.createElement("span");
+        actorNode.className = "timeline-actor";
+        actorNode.textContent = item.name || "";
+        meta.appendChild(indexNode);
+        meta.appendChild(sideNode);
+        meta.appendChild(actorNode);
+        const move = document.createElement("div");
+        move.className = "timeline-move";
+        move.textContent = item.notation || (item.move && item.move.text) || "";
+        const coord = item.coord_compact || item.coord || "";
+        if (coord) {
+          const coordNode = document.createElement("span");
+          coordNode.className = "timeline-coord";
+          coordNode.textContent = "（" + coord + "）";
+          move.appendChild(document.createTextNode(" "));
+          move.appendChild(coordNode);
+        }
+        const talk = document.createElement("div");
+        talk.className = "timeline-talk";
+        talk.textContent = item.talk || "";
+        card.appendChild(meta);
+        card.appendChild(move);
+        if (talk.textContent) card.appendChild(talk);
         target.appendChild(card);
       });
       if (!items || !items.length) {
         const empty = document.createElement("div");
         empty.className = "log-card";
-        empty.textContent = "暂无走法";
-        target.appendChild(empty);
-      }
-    }
-
-    function renderTalkLog(target, items) {
-      target.innerHTML = "";
-      (items || []).slice().reverse().forEach((item, offset) => {
-        const card = document.createElement("div");
-        card.className = "log-card";
-        const title = document.createElement("div");
-        title.className = "log-title";
-        title.textContent = "Bot 台词 #" + ((items || []).length - offset);
-        const row = document.createElement("div");
-        row.className = "log-row";
-        row.textContent = item;
-        card.appendChild(title);
-        card.appendChild(row);
-        target.appendChild(card);
-      });
-      if (!items || !items.length) {
-        const empty = document.createElement("div");
-        empty.className = "log-card";
-        empty.textContent = "暂无台词";
+        empty.textContent = "暂无记录";
         target.appendChild(empty);
       }
     }
@@ -1074,6 +1121,7 @@ WEB_HTML = r"""<!doctype html>
     }
 
     async function post(path, body = {}) {
+      unlockAudio();
       if (!token) {
         setMessage("缺少 token，请在聊天里发送 棋局链接。", true);
         return;
@@ -1158,7 +1206,8 @@ WEB_HTML = r"""<!doctype html>
     document.querySelector('[data-action="hint"]').addEventListener("click", () => post("api/hint"));
     document.querySelector('[data-action="undo"]').addEventListener("click", () => post("api/undo"));
     document.querySelector('[data-action="resign"]').addEventListener("click", () => post("api/resign"));
-    themeSelect.addEventListener("change", () => applyTheme(themeSelect.value));
+    pageThemeSelect.addEventListener("change", () => applyPageTheme(pageThemeSelect.value));
+    boardThemeSelect.addEventListener("change", () => applyBoardTheme(boardThemeSelect.value));
     soundToggle.addEventListener("click", () => {
       soundEnabled = !soundEnabled;
       localStorage.setItem("xiangqi_sound", soundEnabled ? "on" : "off");
@@ -1166,7 +1215,8 @@ WEB_HTML = r"""<!doctype html>
       if (soundEnabled) playSound("move");
     });
 
-    applyTheme(localStorage.getItem("xiangqi_theme") || "classic");
+    applyPageTheme(localStorage.getItem("xiangqi_page_theme") || "light");
+    applyBoardTheme(localStorage.getItem("xiangqi_board_theme") || localStorage.getItem("xiangqi_theme") || "classic");
     updateSoundButton();
     loadState();
   </script>

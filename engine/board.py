@@ -87,6 +87,7 @@ class Board:
     last_move: Move | None = None
     move_log: list[str] = field(default_factory=list)
     talk_log: list[str] = field(default_factory=list)
+    turn_log: list[dict[str, Any]] = field(default_factory=list)
     history: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
@@ -101,6 +102,7 @@ class Board:
             last_move=None if self.last_move is None else Move.from_dict(self.last_move.to_dict()),
             move_log=list(self.move_log),
             talk_log=list(self.talk_log),
+            turn_log=[entry.copy() for entry in self.turn_log],
             history=[entry.copy() for entry in self.history],
         )
 
@@ -120,6 +122,7 @@ class Board:
             "last_move": None if self.last_move is None else self.last_move.to_dict(),
             "move_log": list(self.move_log),
             "talk_log": list(self.talk_log),
+            "turn_log": [entry.copy() for entry in self.turn_log],
         }
 
     def restore(self, state: dict[str, Any]) -> None:
@@ -130,6 +133,7 @@ class Board:
         self.last_move = None if last_move is None else Move.from_dict(last_move)
         self.move_log = list(state.get("move_log", []))
         self.talk_log = list(state.get("talk_log", []))
+        self.turn_log = [entry.copy() for entry in state.get("turn_log", [])]
 
     def push_state(self) -> None:
         self.history.append(self.snapshot())
@@ -172,6 +176,7 @@ class Board:
             "last_move": None if self.last_move is None else self.last_move.to_dict(),
             "move_log": list(self.move_log),
             "talk_log": list(self.talk_log),
+            "turn_log": [entry.copy() for entry in self.turn_log],
             "history": [entry.copy() for entry in self.history],
         }
 
@@ -186,5 +191,6 @@ class Board:
         board.last_move = None if last_move is None else Move.from_dict(last_move)
         board.move_log = list(data.get("move_log", []))
         board.talk_log = list(data.get("talk_log", []))
+        board.turn_log = [entry.copy() for entry in data.get("turn_log", [])]
         board.history = [entry.copy() for entry in data.get("history", [])]
         return board

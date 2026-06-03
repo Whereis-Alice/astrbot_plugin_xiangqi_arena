@@ -46,6 +46,7 @@ MOVE_COMMAND_PREFIXES = ("走棋", "走", "move")
 PLUGIN_LOG_NAME = "xiangqi_arena"
 BOARD_CONTEXT_MARKER = "[xiangqi_arena_board_context]"
 ACTIVE_GAME_RESET_MESSAGE = "当前会话已有未结束的象棋对局。发送“棋盘”查看，发送“重开”强制重置。"
+CHINESE_DIGITS = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
 
 
 @dataclass(slots=True)
@@ -795,6 +796,13 @@ class XiangqiArenaPlugin(Star):
             except (IllegalMoveError, ValueError) as exc:
                 return {"ok": False, "error": str(exc), "state": self._serialize_webui_state(session_id, board)}
 
+            self._append_turn_log_entry(
+                board,
+                player_move,
+                player_color,
+                "player",
+                self._format_webui_player_talk(player_move, player_color),
+            )
             message_parts: list[str] = []
             player_only_summary = self._format_player_move_summary(player_move)
             if player_only_summary:
@@ -890,7 +898,11 @@ class XiangqiArenaPlugin(Star):
                         describe_move(bot_move),
                         bot_reason,
                     )
-                    self._remember_turn(board, player_move, bot_move, None, player_in_check)
+                    note = f"玩家：{describe_move(player_move)}；我：{describe_move(bot_move)}"
+                    if player_in_check:
+                        note += "；玩家被将军"
+                    board.move_log.append(note)
+                    self._append_turn_log_entry(board, bot_move, bot_color, "bot", self._format_webui_bot_default_talk(bot_move, bot_color))
                     ended = self._append_endgame_message(board, player_color, message_parts, winner_is_player=False)
                     if ended:
                         self.store.delete(session_id)
@@ -906,6 +918,9 @@ class XiangqiArenaPlugin(Star):
                 async with self._session_lock(session_id):
                     current = self.store.load(session_id)
                     if current is not None:
+                        bot_talk = " ".join(re.sub(r"\s+", " ", line).strip() for line in talk_lines or [] if line).strip()
+                        if bot_talk:
+                            self._update_last_bot_turn_talk(current, bot_move, bot_talk)
                         for line in talk_lines or []:
                             clean = re.sub(r"\s+", " ", line).strip()
                             if clean:
@@ -1010,6 +1025,7 @@ class XiangqiArenaPlugin(Star):
             "grid": [[self._serialize_piece(piece) for piece in row] for row in display_board.grid],
             "move_log": list(display_board.move_log),
             "talk_log": list(display_board.talk_log),
+            "timeline": self._serialize_webui_timeline(display_board),
             "coordinates": {
                 "files": [chr(ord("a") + index) for index in range(9)],
                 "ranks": [str(index) for index in range(10)],
@@ -1030,6 +1046,142 @@ class XiangqiArenaPlugin(Star):
             "captured": self._serialize_piece(move.captured),
             "text": describe_move(move),
         }
+
+    def _serialize_webui_timeline(self, board: Board) -> list[dict[str, Any]]:
+        if board.turn_log:
+            items = []
+            for index, entry in enumerate(board.turn_log, 1):
+                item = self._serialize_turn_log_entry(entry, index)
+                if item is not None:
+                    items.append(item)
+            return items
+        return self._legacy_webui_timeline(board)
+
+    def _serialize_turn_log_entry(self, entry: dict[str, Any], index: int) -> dict[str, Any] | None:
+        try:
+            move = Move.from_dict(entry["move"])
+        except Exception:
+            return None
+        side = str(entry.get("side") or piece_color(move.piece) or "")
+        actor = str(entry.get("actor") or "")
+        name = self._webui_player_name() if actor == "player" else self._webui_bot_name()
+        talk = str(entry.get("talk") or "").strip()
+        if actor == "player" and not talk:
+            talk = self._format_webui_player_talk(move, side)
+        if actor == "bot" and not talk:
+            talk = self._format_webui_bot_default_talk(move, side)
+        return {
+            "index": index,
+            "side": side,
+            "side_label": self._side_label(side),
+            "side_short": "红" if side == RED else "黑" if side == BLACK else side,
+            "actor": actor,
+            "name": name,
+            "move": self._serialize_move(move),
+            "notation": self._format_chinese_move(move, side),
+            "coord": describe_move(move),
+            "coord_compact": f"{format_coord(move.from_pos)}{format_coord(move.to_pos)}",
+            "talk": talk,
+        }
+
+    def _legacy_webui_timeline(self, board: Board) -> list[dict[str, Any]]:
+        timeline: list[dict[str, Any]] = []
+        talk_index = 0
+        for note in board.move_log:
+            player_text, bot_text = self._split_legacy_move_note(note)
+            if player_text and player_text != "开局":
+                timeline.append(self._legacy_timeline_item(len(timeline) + 1, board.player_color, "player", player_text, ""))
+            if bot_text:
+                talk = board.talk_log[talk_index] if talk_index < len(board.talk_log) else ""
+                talk_index += 1
+                timeline.append(self._legacy_timeline_item(len(timeline) + 1, opponent(board.player_color), "bot", bot_text, talk))
+        return timeline
+
+    def _legacy_timeline_item(self, index: int, side: str, actor: str, coord_text: str, talk: str) -> dict[str, Any]:
+        name = self._webui_player_name() if actor == "player" else self._webui_bot_name()
+        return {
+            "index": index,
+            "side": side,
+            "side_label": self._side_label(side),
+            "side_short": "红" if side == RED else "黑" if side == BLACK else side,
+            "actor": actor,
+            "name": name,
+            "move": None,
+            "notation": coord_text,
+            "coord": coord_text,
+            "coord_compact": coord_text.replace(" -> ", ""),
+            "talk": talk or ("先这样走一步。" if actor == "player" else ""),
+        }
+
+    def _split_legacy_move_note(self, note: str) -> tuple[str, str]:
+        player_text = ""
+        bot_text = ""
+        for part in re.split(r"[；;]", note):
+            text = part.strip()
+            if "玩家：" in text:
+                player_text = text.split("玩家：", 1)[1].strip()
+            elif "我：" in text:
+                bot_text = text.split("我：", 1)[1].strip()
+        return player_text, bot_text
+
+    def _append_turn_log_entry(self, board: Board, move: Move, side: str, actor: str, talk: str = "") -> None:
+        board.turn_log.append(
+            {
+                "side": side,
+                "actor": actor,
+                "move": move.to_dict(),
+                "talk": re.sub(r"\s+", " ", talk).strip(),
+            }
+        )
+
+    def _update_last_bot_turn_talk(self, board: Board, bot_move: Move, talk: str) -> None:
+        clean = re.sub(r"\s+", " ", talk).strip()
+        if not clean:
+            return
+        for entry in reversed(board.turn_log):
+            if entry.get("actor") != "bot":
+                continue
+            try:
+                entry_move = Move.from_dict(entry["move"])
+            except Exception:
+                continue
+            if self._same_move(entry_move, bot_move):
+                entry["talk"] = clean
+                return
+
+    def _format_webui_player_talk(self, move: Move, side: str) -> str:
+        return self._render_template(
+            self._webui_player_talk_template(),
+            {
+                "move": describe_move(move),
+                "notation": self._format_chinese_move(move, side),
+                "coord": f"{format_coord(move.from_pos)}{format_coord(move.to_pos)}",
+                "side": self._side_label(side),
+            },
+        )
+
+    def _format_webui_bot_default_talk(self, move: Move, side: str) -> str:
+        return f"我走 {self._format_chinese_move(move, side)}，先稳一手。"
+
+    def _format_chinese_move(self, move: Move, color: str) -> str:
+        piece_name = PIECE_NAMES.get(move.piece, move.piece)
+        fx, fy = move.from_pos
+        tx, ty = move.to_pos
+        origin = self._chinese_digit(self._display_file_number(fx))
+        if fy == ty:
+            return f"{piece_name}{origin}平{self._chinese_digit(self._display_file_number(tx))}"
+        forward = ty < fy if color == RED else ty > fy
+        action = "进" if forward else "退"
+        target_value = self._display_file_number(tx) if move.piece.upper() in {"N", "B", "A"} else abs(ty - fy)
+        return f"{piece_name}{origin}{action}{self._chinese_digit(target_value)}"
+
+    def _display_file_number(self, x: int) -> int:
+        return 9 - x
+
+    def _chinese_digit(self, value: int) -> str:
+        if 0 < value < len(CHINESE_DIGITS):
+            return CHINESE_DIGITS[value]
+        return str(value)
 
     def _same_move(self, left: Move | None, right: Move | None) -> bool:
         if left is None or right is None:
@@ -1204,6 +1356,15 @@ class XiangqiArenaPlugin(Star):
     def _board_image_theme(self) -> str:
         theme = self._str_config("board_image_theme", "classic").lower()
         return theme if theme in {"classic", "jade", "dark", "paper"} else "classic"
+
+    def _webui_player_name(self) -> str:
+        return self._str_config("webui_player_name", "玩家") or "玩家"
+
+    def _webui_bot_name(self) -> str:
+        return self._str_config("webui_bot_name", "爱丽丝") or "爱丽丝"
+
+    def _webui_player_talk_template(self) -> str:
+        return self._str_config("webui_player_talk_template", "先这样走一步。") or "先这样走一步。"
 
     def _webui_enabled(self) -> bool:
         return self._bool_config("webui_enabled", True)
@@ -1827,6 +1988,17 @@ class XiangqiArenaPlugin(Star):
         if player_in_check:
             note += "；玩家被将军"
         board.move_log.append(note)
+        if player_move is not None:
+            self._append_turn_log_entry(
+                board,
+                player_move,
+                board.player_color,
+                "player",
+                self._format_webui_player_talk(player_move, board.player_color),
+            )
+        bot_color = opponent(board.player_color)
+        bot_talk = " ".join(re.sub(r"\s+", " ", line).strip() for line in talk_lines or [] if line).strip()
+        self._append_turn_log_entry(board, bot_move, bot_color, "bot", bot_talk)
         for line in talk_lines or []:
             clean = re.sub(r"\s+", " ", line).strip()
             if clean:

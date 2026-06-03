@@ -102,6 +102,24 @@
     "default": true,
     "hint": "仅在 webui_notify_chat 开启时生效。关闭后网页操作只同步文字，不主动发送棋盘图片。"
   },
+  "webui_player_name": {
+    "description": "WebUI 玩家显示名",
+    "type": "string",
+    "default": "玩家",
+    "hint": "用于网页棋局记录，例如“#1 红 玩家”。"
+  },
+  "webui_bot_name": {
+    "description": "WebUI Bot 显示名",
+    "type": "string",
+    "default": "爱丽丝",
+    "hint": "用于网页棋局记录，例如“#2 黑 爱丽丝”。可以改成你给 Bot 设置的名字。"
+  },
+  "webui_player_talk_template": {
+    "description": "WebUI 玩家默认台词模板",
+    "type": "string",
+    "default": "先这样走一步。",
+    "hint": "网页时间线会给玩家每步补一句默认台词。可用变量：{move}、{notation}、{coord}、{side}。"
+  },
   "enable_pikafish_http_engine": {
     "description": "启用 Pikafish HTTP 服务",
     "type": "bool",

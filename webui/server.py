@@ -337,13 +337,6 @@ WEB_HTML = r"""<!doctype html>
       letter-spacing: 0;
     }
 
-    .status {
-      color: var(--muted);
-      font-size: 14px;
-      text-align: right;
-      line-height: 1.4;
-    }
-
     .top-actions {
       display: flex;
       align-items: center;
@@ -738,7 +731,6 @@ WEB_HTML = r"""<!doctype html>
       .layout { grid-template-columns: 1fr; }
       .topbar { align-items: flex-start; flex-direction: column; }
       .top-actions { margin-left: 0; }
-      .status { text-align: left; }
       .side { grid-template-columns: 1fr; }
     }
 
@@ -774,7 +766,6 @@ WEB_HTML = r"""<!doctype html>
         </label>
         <button class="sound-toggle" id="soundToggle" type="button" title="落子音效">声</button>
       </div>
-      <div class="status" id="status">连接中</div>
     </div>
     <section class="layout">
       <div class="board-wrap">
@@ -814,7 +805,6 @@ WEB_HTML = r"""<!doctype html>
   <script>
     const token = new URLSearchParams(location.search).get("token") || "";
     const boardEl = document.getElementById("board");
-    const statusEl = document.getElementById("status");
     const messageEl = document.getElementById("message");
     const timelineLogEl = document.getElementById("timelineLog");
     const pageThemeSelect = document.getElementById("pageThemeSelect");
@@ -828,6 +818,7 @@ WEB_HTML = r"""<!doctype html>
     let busy = false;
     let audioCtx = null;
     let soundEnabled = localStorage.getItem("xiangqi_sound") !== "off";
+    let zhVoice = null;
     let lastMoveKey = "";
     let pollTimer = 0;
 
@@ -874,6 +865,17 @@ WEB_HTML = r"""<!doctype html>
       const ctx = ensureAudio();
       if (!ctx) return;
       if (ctx.state === "suspended") void ctx.resume();
+      if (window.speechSynthesis) loadZhVoice();
+    }
+
+    function loadZhVoice() {
+      if (!window.speechSynthesis) return null;
+      const voices = window.speechSynthesis.getVoices();
+      zhVoice = voices.find(v => /^zh/i.test(v.lang) && /female|xiaoxiao|xiaoyi|tingting|huihui|hanhan/i.test(v.name))
+        || voices.find(v => /^zh/i.test(v.lang))
+        || voices.find(v => /Chinese|Mandarin|中文|普通话/i.test(v.name))
+        || zhVoice;
+      return zhVoice;
     }
 
     function playTone(start, freq, duration, gainValue, type = "triangle") {
@@ -892,6 +894,21 @@ WEB_HTML = r"""<!doctype html>
       osc.stop(start + duration + 0.02);
     }
 
+    function speakSound(kind) {
+      if (!soundEnabled || !window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") return;
+      const text = { move: "落子", capture: "吃子", check: "将军" }[kind];
+      if (!text) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "zh-CN";
+      utterance.rate = kind === "check" ? 1.02 : 1.12;
+      utterance.pitch = kind === "check" ? 1.08 : 0.96;
+      utterance.volume = 0.92;
+      const voice = loadZhVoice();
+      if (voice) utterance.voice = voice;
+      window.speechSynthesis.speak(utterance);
+    }
+
     function playSound(kind) {
       const ctx = ensureAudio();
       if (!ctx) return;
@@ -899,9 +916,22 @@ WEB_HTML = r"""<!doctype html>
       if (kind === "capture") {
         playTone(now, 220, .08, .13, "square");
         playTone(now + .055, 150, .10, .11, "triangle");
+      } else if (kind === "check") {
+        playTone(now, 330, .08, .12, "square");
+        playTone(now + .07, 440, .10, .10, "triangle");
+        playTone(now + .16, 550, .12, .08, "sine");
       } else {
         playTone(now, 180, .075, .10, "triangle");
         playTone(now + .045, 260, .06, .065, "sine");
+      }
+      speakSound(kind);
+    }
+
+    function playMoveSounds(kind, nextState) {
+      if (!kind) return;
+      playSound(kind);
+      if (nextState && nextState.in_check) {
+        window.setTimeout(() => playSound("check"), kind === "capture" ? 210 : 130);
       }
     }
 
@@ -928,7 +958,6 @@ WEB_HTML = r"""<!doctype html>
     function render() {
       boardEl.innerHTML = "";
       if (!state) return;
-      statusEl.textContent = state.status + "  " + state.session;
       const turnText = state.processing_label || (state.game_active ? "当前行棋：" + state.side_to_move_label : state.status);
       turnPillEl.textContent = turnText;
       turnPillEl.classList.toggle("thinking", !!state.processing);
@@ -1152,11 +1181,11 @@ WEB_HTML = r"""<!doctype html>
           body: JSON.stringify({ token, ...body })
         });
         const data = await resp.json();
-        if (data.sound) playSound(data.sound);
         if (data.state) {
           applyServerState(data.state, { playServerMove: false });
           lastMoveKey = moveKey(data.state.last_move);
         }
+        if (data.sound) playMoveSounds(data.sound, data.state);
         if (!data.ok) {
           setMessage(data.error || "操作失败。", true);
         } else {
@@ -1179,7 +1208,7 @@ WEB_HTML = r"""<!doctype html>
       state = nextState;
       const nextKey = moveKey(state && state.last_move);
       if (options.playServerMove && nextKey && nextKey !== previousKey && nextKey !== lastMoveKey) {
-        playSound(state.last_move && state.last_move.captured ? "capture" : "move");
+        playMoveSounds(state.last_move && state.last_move.captured ? "capture" : "move", state);
         lastMoveKey = nextKey;
       }
       const botName = (state && state.bot_name) || "Bot";
@@ -1197,7 +1226,6 @@ WEB_HTML = r"""<!doctype html>
 
     async function loadState() {
       if (!token) {
-        statusEl.textContent = "未绑定棋局";
         setMessage("请在聊天里发送 棋局链接 获取地址。", true);
         return;
       }
@@ -1231,11 +1259,17 @@ WEB_HTML = r"""<!doctype html>
       soundEnabled = !soundEnabled;
       localStorage.setItem("xiangqi_sound", soundEnabled ? "on" : "off");
       updateSoundButton();
-      if (soundEnabled) playSound("move");
+      if (soundEnabled) {
+        unlockAudio();
+        playSound("move");
+      } else if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
     });
 
     applyPageTheme(localStorage.getItem("xiangqi_page_theme") || "light");
     applyBoardTheme(localStorage.getItem("xiangqi_board_theme") || localStorage.getItem("xiangqi_theme") || "classic");
+    if (window.speechSynthesis) window.speechSynthesis.onvoiceschanged = loadZhVoice;
     updateSoundButton();
     loadState();
   </script>

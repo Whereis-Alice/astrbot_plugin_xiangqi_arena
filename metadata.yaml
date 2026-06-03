@@ -1,7 +1,7 @@
 name: astrbot_plugin_xiangqi_arena
 display_name: 象棋竞技场
 author: Whereis-Alice, based on zxx624
-version: 3.4.4
+version: 3.4.5
 desc: 支持高级独立 WebUI、Pikafish HTTP/Pikafish/xqwlight/builtin 多引擎降级、低配服务器优化和简化走棋指令的 AstrBot 中国象棋插件
 repo: https://github.com/Whereis-Alice/astrbot_plugin_xiangqi_arena
 astrbot_version: ">=4.24,<5"

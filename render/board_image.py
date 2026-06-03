@@ -27,11 +27,11 @@ THEMES: dict[str, dict[str, str]] = {
         "river": "#f7d998",
         "line": LINE_COLOR,
         "river_text": "#7a4519",
-        "red": RED_COLOR,
-        "black": BLACK_COLOR,
-        "piece_fill": "#fff4d8",
-        "piece_base": "#d6ad67",
-        "piece_shadow": "#b28952",
+        "red": "#be2434",
+        "black": "#2d261d",
+        "piece_fill": "#fff2cc",
+        "piece_base": "#b9833a",
+        "piece_shadow": "#76542c",
         "status_fill": "#f7e8c3",
         "highlight": HIGHLIGHT_COLOR,
     },
@@ -46,11 +46,11 @@ THEMES: dict[str, dict[str, str]] = {
         "river": "#dfe9bf",
         "line": "#284936",
         "river_text": "#2d6b55",
-        "red": "#c72b42",
-        "black": "#24372f",
-        "piece_fill": "#fbf6df",
-        "piece_base": "#b8c88b",
-        "piece_shadow": "#8da06b",
+        "red": "#d72845",
+        "black": "#1f352a",
+        "piece_fill": "#fff8df",
+        "piece_base": "#89a96a",
+        "piece_shadow": "#536943",
         "status_fill": "#eef5dc",
         "highlight": "#237a68",
     },
@@ -101,6 +101,8 @@ def _theme(name: str | None) -> dict[str, str]:
 
 def render_board(board: Board, output_path: Path, scale: int = 1, theme: str = "classic") -> Path:
     scale = max(1, min(scale, 2))
+    output_scale = scale
+    scale *= 2
     colors = _theme(theme)
     cell = 72 * scale
     margin_x = 112 * scale
@@ -160,6 +162,9 @@ def render_board(board: Board, output_path: Path, scale: int = 1, theme: str = "
     draw.text((48 * scale, status_y - 11 * scale), status, fill=colors["line"], font=font_small)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if scale != output_scale:
+        target_size = (width * output_scale // scale, height * output_scale // scale)
+        image = image.resize(target_size, _resample_lanczos())
     image.save(output_path, format="PNG")
     return output_path
 
@@ -273,37 +278,42 @@ def _draw_piece(
     x, y = pos
     cx = left + x * cell
     cy = top + y * cell
-    radius = int(cell * 0.36)
+    radius = int(cell * 0.39)
     bbox = (cx - radius, cy - radius, cx + radius, cy + radius)
-    shadow = (bbox[0] + 3 * scale, bbox[1] + 5 * scale, bbox[2] + 3 * scale, bbox[3] + 5 * scale)
-    draw.ellipse(shadow, fill=_blend_hex(colors["piece_shadow"], "#000000", 0.16))
+    shadow = (bbox[0] + 4 * scale, bbox[1] + 7 * scale, bbox[2] + 4 * scale, bbox[3] + 7 * scale)
+    draw.ellipse(shadow, fill=_blend_hex(colors["piece_shadow"], "#000000", 0.28))
 
     fill = colors["piece_fill"]
     base = colors["piece_base"]
     outline = colors["red"] if piece_color(piece) == RED else colors["black"]
     text_color = outline
 
-    draw.ellipse(bbox, fill=base, outline=_blend_hex(colors["board_edge"], outline, 0.18), width=max(2 * scale, 1))
-    for step in range(7):
-        inset = int((4 + step * 2) * scale)
-        ratio = (step + 1) / 7
+    edge = _blend_hex(colors["board_edge"], outline, 0.24)
+    draw.ellipse(bbox, fill=_blend_hex(base, "#000000", 0.10), outline=edge, width=max(2 * scale, 1))
+    rim = _inset_box(bbox, 3 * scale)
+    draw.ellipse(rim, fill=base, outline=_blend_hex(base, "#ffffff", 0.18), width=max(scale, 1))
+    for step in range(9):
+        inset = int((9 + step * 1.8) * scale)
+        ratio = (step + 1) / 9
         tone = _blend_hex(base, fill, ratio)
-        draw.ellipse((bbox[0] + inset, bbox[1] + inset, bbox[2] - inset, bbox[3] - inset), fill=tone)
+        draw.ellipse(_inset_box(bbox, inset), fill=tone)
 
-    inner = (bbox[0] + 5 * scale, bbox[1] + 5 * scale, bbox[2] - 5 * scale, bbox[3] - 5 * scale)
-    ring = (bbox[0] + 12 * scale, bbox[1] + 12 * scale, bbox[2] - 12 * scale, bbox[3] - 12 * scale)
-    shine = (bbox[0] + 9 * scale, bbox[1] + 8 * scale, bbox[2] - 9 * scale, bbox[3] - 9 * scale)
-    draw.ellipse(inner, outline=outline, width=max(2 * scale, 1))
-    draw.ellipse(ring, outline=_blend_hex(outline, fill, 0.34), width=max(scale, 1))
-    draw.arc(shine, 205, 300, fill=_blend_hex(fill, "#ffffff", 0.46), width=max(scale, 1))
+    inner = _inset_box(bbox, 8 * scale)
+    ring = _inset_box(bbox, 15 * scale)
+    seal = _inset_box(bbox, 20 * scale)
+    shine = _inset_box(bbox, 11 * scale)
+    draw.ellipse(inner, outline=outline, width=max(3 * scale, 1))
+    draw.ellipse(ring, outline=_blend_hex(outline, fill, 0.22), width=max(2 * scale, 1))
+    draw.ellipse(seal, outline=_blend_hex(outline, fill, 0.58), width=max(scale, 1))
+    draw.arc(shine, 205, 300, fill=_blend_hex(fill, "#ffffff", 0.54), width=max(2 * scale, 1))
     _draw_centered(
         draw,
-        (cx, cy - int(0.5 * scale)),
+        (cx, cy - int(0.8 * scale)),
         PIECE_NAMES[piece],
         font,
         text_color,
         stroke_width=max(scale, 1),
-        stroke_fill=_blend_hex(fill, "#ffffff", 0.36),
+        stroke_fill=_blend_hex(fill, "#ffffff", 0.52),
     )
 
 
@@ -346,6 +356,10 @@ def _blend_hex(left: str, right: str, ratio: float) -> str:
     )
 
 
+def _inset_box(box: tuple[int, int, int, int], inset: int) -> tuple[int, int, int, int]:
+    return box[0] + inset, box[1] + inset, box[2] - inset, box[3] - inset
+
+
 def _hex_to_rgb(value: str) -> tuple[int, int, int]:
     text = value.strip().lstrip("#")
     if len(text) == 3:
@@ -355,13 +369,21 @@ def _hex_to_rgb(value: str) -> tuple[int, int, int]:
     return int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
 
 
+def _resample_lanczos() -> int:
+    resampling = getattr(Image, "Resampling", None)
+    return getattr(resampling, "LANCZOS", Image.LANCZOS)
+
+
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     candidates = [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+        "/usr/share/fonts/opentype/adobe-source-han-sans/SourceHanSansSC-Bold.otf",
+        "C:/Windows/Fonts/simhei.ttf",
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
         "C:/Windows/Fonts/msyh.ttc",
-        "C:/Windows/Fonts/simhei.ttf",
         "C:/Windows/Fonts/simsun.ttc",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     ]

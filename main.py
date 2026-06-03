@@ -49,14 +49,17 @@ ACTIVE_GAME_RESET_MESSAGE = "当前会话已有未结束的象棋对局。发送
 CHINESE_DIGITS = ["", "一", "二", "三", "四", "五", "六", "七", "八", "九"]
 DEFAULT_WEBUI_PLAYER_TALK_TEMPLATES = "\n".join(
     [
-        "先稳住这一手。",
-        "我走 {notation}，看看你怎么接。",
-        "这步先把阵型展开。",
+        "我走 {notation}，先稳一手。",
+        "这步先把阵型摆开。",
         "{side}这边先不急，走 {notation}。",
         "我先试试 {notation}。",
-        "这一步先留点余地。",
+        "先这样落子，看看局面怎么变。",
+        "这手留点余地。",
+        "我走 {move}，先把节奏接住。",
+        "这一手先不冒进。",
     ]
 )
+LEGACY_WEBUI_PLAYER_TALK_DEFAULTS = {"先这样走一步。", "先这样走一步"}
 
 
 @dataclass(slots=True)
@@ -1080,7 +1083,7 @@ class XiangqiArenaPlugin(Star):
         actor = str(entry.get("actor") or "")
         name = self._webui_player_name() if actor == "player" else self._webui_bot_name()
         talk = str(entry.get("talk") or "").strip()
-        if actor == "player" and not talk:
+        if actor == "player" and (not talk or talk in LEGACY_WEBUI_PLAYER_TALK_DEFAULTS):
             talk = self._format_webui_player_talk(move, side)
         if actor == "bot" and not talk:
             talk = self._format_webui_bot_default_talk(move, side)
@@ -1124,7 +1127,7 @@ class XiangqiArenaPlugin(Star):
             "notation": coord_text,
             "coord": coord_text,
             "coord_compact": coord_text.replace(" -> ", ""),
-            "talk": talk or ("先这样走一步。" if actor == "player" else ""),
+            "talk": talk or ("我先稳一手。" if actor == "player" else ""),
         }
 
     def _split_legacy_move_note(self, note: str) -> tuple[str, str]:
@@ -1387,7 +1390,10 @@ class XiangqiArenaPlugin(Star):
         return self._str_config("webui_bot_name", "爱丽丝") or "爱丽丝"
 
     def _webui_player_talk_template(self) -> str:
-        return self._str_config("webui_player_talk_template", DEFAULT_WEBUI_PLAYER_TALK_TEMPLATES) or DEFAULT_WEBUI_PLAYER_TALK_TEMPLATES
+        value = self._str_config("webui_player_talk_template", DEFAULT_WEBUI_PLAYER_TALK_TEMPLATES)
+        if value.strip() in LEGACY_WEBUI_PLAYER_TALK_DEFAULTS:
+            return DEFAULT_WEBUI_PLAYER_TALK_TEMPLATES
+        return value or DEFAULT_WEBUI_PLAYER_TALK_TEMPLATES
 
     def _webui_enabled(self) -> bool:
         return self._bool_config("webui_enabled", True)

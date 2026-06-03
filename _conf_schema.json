@@ -117,8 +117,8 @@
   "webui_player_talk_template": {
     "description": "WebUI 玩家默认台词模板组",
     "type": "text",
-    "default": "先稳住这一手。\n我走 {notation}，看看你怎么接。\n这步先把阵型展开。\n{side}这边先不急，走 {notation}。\n我先试试 {notation}。\n这一步先留点余地。",
-    "hint": "网页时间线会给玩家每步补一句默认台词。可写多行或用 | 分隔，插件会按走法稳定选择一条。可用变量：{move}、{notation}、{coord}、{side}。"
+    "default": "我走 {notation}，先稳一手。\n这步先把阵型摆开。\n{side}这边先不急，走 {notation}。\n我先试试 {notation}。\n先这样落子，看看局面怎么变。\n这手留点余地。\n我走 {move}，先把节奏接住。\n这一手先不冒进。",
+    "hint": "网页时间线会给玩家每步补一句默认台词。可写多行或用 | 分隔，插件会按走法稳定选择一条。旧默认值“先这样走一步。”会自动视为未配置并使用这组内置台词。可用变量：{move}、{notation}、{coord}、{side}。"
   },
   "enable_pikafish_http_engine": {
     "description": "启用 Pikafish HTTP 服务",

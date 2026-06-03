@@ -128,7 +128,7 @@ Bot 会返回一个带 token 的链接。打开后可以直接点击棋子和目
 先起个炮稳一手呗
 ```
 
-其中玩家名、Bot 名和玩家默认台词可通过 `webui_player_name`、`webui_bot_name`、`webui_player_talk_template` 配置。玩家默认台词支持多行或用 `|` 分隔，插件会按走法稳定选一条，刷新页面不会乱跳。
+其中玩家名、Bot 名和玩家默认台词可通过 `webui_player_name`、`webui_bot_name`、`webui_player_talk_template` 配置。玩家默认台词支持多行或用 `|` 分隔，插件会按走法稳定选一条，刷新页面不会乱跳。若配置里还保留旧默认值 `先这样走一步。`，插件会自动视为未配置并使用内置多句。
 
 WebUI 与聊天端使用同一个 `session_id` 存档：
 
@@ -148,7 +148,7 @@ WebUI 与聊天端使用同一个 `session_id` 存档：
   "webui_notify_board": true,
   "webui_player_name": "玩家",
   "webui_bot_name": "爱丽丝",
-  "webui_player_talk_template": "先稳住这一手。\n我走 {notation}，看看你怎么接。\n这步先把阵型展开。\n{side}这边先不急，走 {notation}。\n我先试试 {notation}。\n这一步先留点余地。"
+  "webui_player_talk_template": "我走 {notation}，先稳一手。\n这步先把阵型摆开。\n{side}这边先不急，走 {notation}。\n我先试试 {notation}。\n先这样落子，看看局面怎么变。\n这手留点余地。\n我走 {move}，先把节奏接住。\n这一手先不冒进。"
 }
 ```
 

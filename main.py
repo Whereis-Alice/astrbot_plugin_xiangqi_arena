@@ -275,8 +275,25 @@ class XiangqiArenaPlugin(Star):
         if self._webui_server is None or not self._webui_server.is_running:
             yield event.plain_result("WebUI 启动失败，请查看 AstrBot 日志里的 xiangqi_arena webui 记录。")
             return
-        url = self._webui_server.issue_url(self._session_id(event))
-        yield event.plain_result(f"网页棋盘：{url}\n这个链接绑定当前会话，请勿随意转发。")
+        url = self._webui_server.issue_url(self._session_id(event), owner_id=str(event.get_sender_id() or ""))
+        yield event.plain_result(
+            f"网页棋盘：{url}\n"
+            "打开后默认是观战模式。页面会显示验证码，由你在群里或私聊发送“棋局验证 验证码”后，"
+            "打开验证码的那个浏览器才可以控制棋局。"
+        )
+
+    @filter.command("棋局验证", alias=["网页验证", "绑定棋局", "验证棋局"])
+    async def webui_verify_control(self, event: AstrMessageEvent, code: str | None = None):
+        """验证 WebUI 控制权。只有链接发起人发送验证码才会生效。"""
+        if self._webui_server is None:
+            yield event.plain_result("WebUI 服务未运行，请先发送“网页下棋”生成链接。")
+            return
+        verify_code = self._extract_webui_verify_code(code or getattr(event, "message_str", ""))
+        if not verify_code:
+            yield event.plain_result("请发送：棋局验证 123456")
+            return
+        _ok, message = self._webui_server.verify_control_code(verify_code, str(event.get_sender_id() or ""))
+        yield event.plain_result(message)
 
     @filter.command("Pikafish服务", alias=["pikafish服务", "引擎服务"])
     async def pikafish_service_status(self, event: AstrMessageEvent):
@@ -519,6 +536,7 @@ class XiangqiArenaPlugin(Star):
             port=self._webui_port(),
             public_base_url=self._webui_public_base_url(),
             token_ttl_seconds=self._webui_token_ttl_seconds(),
+            control_code_ttl_seconds=self._webui_control_code_ttl_seconds(),
         )
         try:
             await self._webui_server.start()
@@ -740,6 +758,10 @@ class XiangqiArenaPlugin(Star):
             if lowered.startswith(prefix):
                 return text[len(prefix) :].strip()
         return text
+
+    def _extract_webui_verify_code(self, raw_text: str) -> str:
+        match = re.search(r"(?<!\d)(\d{6})(?!\d)", str(raw_text or ""))
+        return match.group(1) if match else ""
 
     def _session_id(self, event: AstrMessageEvent) -> str:
         origin = getattr(event, "unified_msg_origin", None)
@@ -1409,6 +1431,9 @@ class XiangqiArenaPlugin(Star):
 
     def _webui_token_ttl_seconds(self) -> int:
         return self._int_config("webui_token_ttl_seconds", 86400, 0, 604800)
+
+    def _webui_control_code_ttl_seconds(self) -> int:
+        return self._int_config("webui_control_code_ttl_seconds", 300, 60, 3600)
 
     def _webui_notify_chat(self) -> bool:
         return self._bool_config("webui_notify_chat", True)

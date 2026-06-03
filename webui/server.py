@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import secrets
 import time
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote
 
@@ -16,6 +17,23 @@ except Exception:  # pragma: no cover - handled at runtime with a clear log.
 
 
 PLUGIN_LOG_NAME = "xiangqi_arena"
+CONTROL_REQUIRED_MESSAGE = "当前是观战模式，请由 WebUI 链接发起人发送验证码后再控制棋局。"
+
+
+@dataclass
+class WebTokenRecord:
+    session_id: str
+    owner_id: str
+    expires_at: float
+    control_clients: set[str] = field(default_factory=set)
+
+
+@dataclass
+class WebVerifyRecord:
+    token: str
+    client_id: str
+    owner_id: str
+    expires_at: float
 
 
 class XiangqiWebServer:
@@ -26,13 +44,16 @@ class XiangqiWebServer:
         port: int,
         public_base_url: str = "",
         token_ttl_seconds: int = 86400,
+        control_code_ttl_seconds: int = 300,
     ):
         self.plugin = plugin
         self.host = host
         self.port = port
         self.public_base_url = public_base_url.strip().rstrip("/")
         self.token_ttl_seconds = token_ttl_seconds
-        self._tokens: dict[str, tuple[str, float]] = {}
+        self.control_code_ttl_seconds = max(30, int(control_code_ttl_seconds or 300))
+        self._tokens: dict[str, WebTokenRecord] = {}
+        self._verify_codes: dict[str, WebVerifyRecord] = {}
         self._runner: Any = None
         self._site: Any = None
         self._bound_port = port
@@ -79,12 +100,53 @@ class XiangqiWebServer:
             host = f"[{host}]"
         return f"http://{host}:{self._bound_port}"
 
-    def issue_url(self, session_id: str) -> str:
+    def issue_url(self, session_id: str, owner_id: str = "") -> str:
         token = secrets.token_urlsafe(32)
         expires_at = time.time() + self.token_ttl_seconds if self.token_ttl_seconds > 0 else 0.0
-        self._tokens[token] = (session_id, expires_at)
+        self._tokens[token] = WebTokenRecord(session_id=session_id, owner_id=str(owner_id or ""), expires_at=expires_at)
         self._cleanup_tokens()
         return f"{self.base_url}/?token={quote(token)}"
+
+    def verify_control_code(self, code: str, sender_id: str) -> tuple[bool, str]:
+        self._cleanup_tokens()
+        clean_code = str(code or "").strip()
+        verify_record = self._verify_codes.get(clean_code)
+        if verify_record is None:
+            return False, "验证码无效或已过期，请刷新网页后使用页面上显示的新验证码。"
+        if verify_record.expires_at and verify_record.expires_at < time.time():
+            self._verify_codes.pop(clean_code, None)
+            return False, "验证码已过期，请刷新网页后使用页面上显示的新验证码。"
+
+        token_record = self._tokens.get(verify_record.token)
+        if token_record is None:
+            self._verify_codes.pop(clean_code, None)
+            return False, "这个 WebUI 链接已经失效，请重新发送“网页下棋”生成链接。"
+
+        expected_owner = str(verify_record.owner_id or "")
+        actual_sender = str(sender_id or "")
+        if not expected_owner:
+            return False, "这个 WebUI 链接缺少发起人信息，请重新发送“网页下棋”生成链接。"
+        if actual_sender != expected_owner:
+            logger.warning(
+                "%s webui control verify rejected: code=%s owner=%s sender=%s session=%s",
+                PLUGIN_LOG_NAME,
+                clean_code,
+                expected_owner,
+                actual_sender,
+                token_record.session_id,
+            )
+            return False, "只有生成这个 WebUI 链接的人可以验证控制权。"
+
+        token_record.control_clients.add(verify_record.client_id)
+        self._verify_codes.pop(clean_code, None)
+        logger.info(
+            "%s webui control granted: session=%s owner=%s client=%s",
+            PLUGIN_LOG_NAME,
+            token_record.session_id,
+            expected_owner,
+            verify_record.client_id[:16],
+        )
+        return True, "验证通过，打开验证码的那个网页现在可以控制棋局了。"
 
     def _detect_bound_port(self) -> int:
         try:
@@ -102,57 +164,61 @@ class XiangqiWebServer:
         return self._json({"ok": True, "name": "xiangqi_arena_webui"})
 
     async def _handle_state(self, request: Any) -> Any:
-        session_id, error = self._session_from_token(request.query.get("token", ""))
+        token = str(request.query.get("token", ""))
+        client_id = self._client_id_from_request(request)
+        record, error = self._record_from_token(token)
         if error:
             return self._json({"ok": False, "error": error}, status=403)
-        return self._json({"ok": True, "state": await self.plugin.webui_get_state(session_id)})
+        state = await self.plugin.webui_get_state(record.session_id)
+        return self._json({"ok": True, "state": self._with_access_state(state, token, record, client_id)})
 
     async def _handle_new(self, request: Any) -> Any:
         payload = await self._read_json(request)
-        session_id, error = self._session_from_payload(request, payload)
+        token, client_id, record, error = self._control_record_from_payload(request, payload)
         if error:
-            return self._json({"ok": False, "error": error}, status=403)
-        return self._json(
-            await self.plugin.webui_start_game(
-                session_id,
-                str(payload.get("player_color") or "red"),
-                force=bool(payload.get("force")),
-            )
+            return await self._control_error_response(error, token, client_id, record)
+        result = await self.plugin.webui_start_game(
+            record.session_id,
+            str(payload.get("player_color") or "red"),
+            force=bool(payload.get("force")),
         )
+        return self._json(self._with_access_payload(result, token, record, client_id))
 
     async def _handle_move(self, request: Any) -> Any:
         payload = await self._read_json(request)
-        session_id, error = self._session_from_payload(request, payload)
+        token, client_id, record, error = self._control_record_from_payload(request, payload)
         if error:
-            return self._json({"ok": False, "error": error}, status=403)
-        return self._json(
-            await self.plugin.webui_move(
-                session_id,
-                str(payload.get("from") or ""),
-                str(payload.get("to") or ""),
-            )
+            return await self._control_error_response(error, token, client_id, record)
+        result = await self.plugin.webui_move(
+            record.session_id,
+            str(payload.get("from") or ""),
+            str(payload.get("to") or ""),
         )
+        return self._json(self._with_access_payload(result, token, record, client_id))
 
     async def _handle_undo(self, request: Any) -> Any:
         payload = await self._read_json(request)
-        session_id, error = self._session_from_payload(request, payload)
+        token, client_id, record, error = self._control_record_from_payload(request, payload)
         if error:
-            return self._json({"ok": False, "error": error}, status=403)
-        return self._json(await self.plugin.webui_undo(session_id))
+            return await self._control_error_response(error, token, client_id, record)
+        result = await self.plugin.webui_undo(record.session_id)
+        return self._json(self._with_access_payload(result, token, record, client_id))
 
     async def _handle_resign(self, request: Any) -> Any:
         payload = await self._read_json(request)
-        session_id, error = self._session_from_payload(request, payload)
+        token, client_id, record, error = self._control_record_from_payload(request, payload)
         if error:
-            return self._json({"ok": False, "error": error}, status=403)
-        return self._json(await self.plugin.webui_resign(session_id))
+            return await self._control_error_response(error, token, client_id, record)
+        result = await self.plugin.webui_resign(record.session_id)
+        return self._json(self._with_access_payload(result, token, record, client_id))
 
     async def _handle_hint(self, request: Any) -> Any:
         payload = await self._read_json(request)
-        session_id, error = self._session_from_payload(request, payload)
+        token, client_id, record, error = self._control_record_from_payload(request, payload)
         if error:
-            return self._json({"ok": False, "error": error}, status=403)
-        return self._json(await self.plugin.webui_hint(session_id))
+            return await self._control_error_response(error, token, client_id, record)
+        result = await self.plugin.webui_hint(record.session_id)
+        return self._json(self._with_access_payload(result, token, record, client_id))
 
     async def _read_json(self, request: Any) -> dict[str, Any]:
         try:
@@ -166,22 +232,146 @@ class XiangqiWebServer:
         return self._session_from_token(token)
 
     def _session_from_token(self, token: str) -> tuple[str, str]:
+        record, error = self._record_from_token(token)
+        if error:
+            return "", error
+        return record.session_id, ""
+
+    def _record_from_token(self, token: str) -> tuple[WebTokenRecord, str]:
         if not token:
-            return "", "缺少 WebUI token，请在聊天里发送“棋局链接”重新获取。"
+            return WebTokenRecord("", "", 0.0), "缺少 WebUI token，请在聊天里发送“棋局链接”重新获取。"
         record = self._tokens.get(token)
         if record is None:
-            return "", "WebUI token 无效或已随插件重启失效，请重新获取链接。"
-        session_id, expires_at = record
-        if expires_at and expires_at < time.time():
+            return WebTokenRecord("", "", 0.0), "WebUI token 无效或已随插件重启失效，请重新获取链接。"
+        if record.expires_at and record.expires_at < time.time():
             self._tokens.pop(token, None)
-            return "", "WebUI token 已过期，请重新获取链接。"
-        return session_id, ""
+            self._drop_verify_codes_for_token(token)
+            return WebTokenRecord("", "", 0.0), "WebUI token 已过期，请重新获取链接。"
+        return record, ""
+
+    def _control_record_from_payload(
+        self,
+        request: Any,
+        payload: dict[str, Any],
+    ) -> tuple[str, str, WebTokenRecord | None, str]:
+        token = str(payload.get("token") or request.query.get("token") or "")
+        client_id = self._client_id_from_payload(request, payload)
+        record, error = self._record_from_token(token)
+        if error:
+            return token, client_id, None, error
+        if not client_id:
+            return token, client_id, record, "浏览器身份未初始化，请刷新 WebUI 页面后重试。"
+        if client_id not in record.control_clients:
+            return token, client_id, record, CONTROL_REQUIRED_MESSAGE
+        return token, client_id, record, ""
+
+    async def _control_error_response(
+        self,
+        error: str,
+        token: str,
+        client_id: str,
+        record: WebTokenRecord | None,
+    ) -> Any:
+        payload: dict[str, Any] = {"ok": False, "error": error}
+        if record is not None and record.session_id:
+            state = await self.plugin.webui_get_state(record.session_id)
+            payload["state"] = self._with_access_state(state, token, record, client_id)
+        return self._json(payload, status=403)
+
+    def _client_id_from_request(self, request: Any) -> str:
+        return self._clean_client_id(str(request.query.get("client_id", "")))
+
+    def _client_id_from_payload(self, request: Any, payload: dict[str, Any]) -> str:
+        return self._clean_client_id(str(payload.get("client_id") or request.query.get("client_id") or ""))
+
+    def _clean_client_id(self, value: str) -> str:
+        value = str(value or "").strip()
+        if len(value) > 128:
+            value = value[:128]
+        return value
+
+    def _with_access_state(self, state: dict[str, Any], token: str, record: WebTokenRecord, client_id: str) -> dict[str, Any]:
+        next_state = dict(state)
+        can_control = bool(client_id and client_id in record.control_clients)
+        access: dict[str, Any] = {
+            "can_control": can_control,
+            "mode": "control" if can_control else "spectator",
+            "label": "控制模式" if can_control else "观战模式",
+            "verify_code": "",
+            "verify_expires_in": 0,
+            "verify_hint": "",
+        }
+        if not can_control:
+            if client_id:
+                code, expires_in = self._ensure_verify_code(token, record, client_id)
+                access.update(
+                    {
+                        "verify_code": code,
+                        "verify_expires_in": expires_in,
+                        "verify_hint": f"请链接发起人在群里或私聊发送：棋局验证 {code}",
+                    }
+                )
+            else:
+                access["verify_hint"] = "浏览器身份未初始化，请刷新页面。"
+        next_state["can_control"] = can_control
+        next_state["access"] = access
+        next_state["verify_code"] = access["verify_code"]
+        next_state["verify_hint"] = access["verify_hint"]
+        return next_state
+
+    def _with_access_payload(
+        self,
+        payload: dict[str, Any],
+        token: str,
+        record: WebTokenRecord,
+        client_id: str,
+    ) -> dict[str, Any]:
+        next_payload = dict(payload)
+        state = next_payload.get("state")
+        if isinstance(state, dict):
+            next_payload["state"] = self._with_access_state(state, token, record, client_id)
+        return next_payload
+
+    def _ensure_verify_code(self, token: str, record: WebTokenRecord, client_id: str) -> tuple[str, int]:
+        now = time.time()
+        for code, verify_record in list(self._verify_codes.items()):
+            if verify_record.expires_at and verify_record.expires_at < now:
+                self._verify_codes.pop(code, None)
+                continue
+            if verify_record.token == token and verify_record.client_id == client_id:
+                return code, max(0, int(verify_record.expires_at - now))
+
+        code = self._new_verify_code()
+        expires_at = now + self.control_code_ttl_seconds
+        self._verify_codes[code] = WebVerifyRecord(
+            token=token,
+            client_id=client_id,
+            owner_id=record.owner_id,
+            expires_at=expires_at,
+        )
+        return code, max(0, int(expires_at - now))
+
+    def _new_verify_code(self) -> str:
+        for _ in range(30):
+            code = f"{secrets.randbelow(1000000):06d}"
+            if code not in self._verify_codes:
+                return code
+        return f"{secrets.randbelow(1000000):06d}"
 
     def _cleanup_tokens(self) -> None:
         now = time.time()
-        expired = [token for token, (_session_id, expires_at) in self._tokens.items() if expires_at and expires_at < now]
+        expired = [token for token, record in self._tokens.items() if record.expires_at and record.expires_at < now]
         for token in expired:
             self._tokens.pop(token, None)
+            self._drop_verify_codes_for_token(token)
+        for code, verify_record in list(self._verify_codes.items()):
+            if verify_record.expires_at and verify_record.expires_at < now:
+                self._verify_codes.pop(code, None)
+
+    def _drop_verify_codes_for_token(self, token: str) -> None:
+        for code, verify_record in list(self._verify_codes.items()):
+            if verify_record.token == token:
+                self._verify_codes.pop(code, None)
 
     def _json(self, payload: dict[str, Any], status: int = 200) -> Any:
         return web.json_response(payload, status=status, dumps=lambda value: json.dumps(value, ensure_ascii=False))
@@ -603,6 +793,42 @@ WEB_HTML = r"""<!doctype html>
       gap: 8px;
     }
 
+    .access-box {
+      display: grid;
+      gap: 5px;
+      margin-bottom: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(101, 115, 108, .18);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .access-title {
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .access-code {
+      display: none;
+      width: fit-content;
+      min-height: 28px;
+      align-items: center;
+      padding: 0 9px;
+      border-radius: 6px;
+      background: var(--accent-weak);
+      color: var(--accent);
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 1px;
+    }
+
+    .access-box.spectator .access-code {
+      display: inline-flex;
+    }
+
     .primary {
       background: var(--accent);
       border-color: var(--accent);
@@ -781,6 +1007,11 @@ WEB_HTML = r"""<!doctype html>
       <aside class="side">
         <section class="panel">
           <h2>操作</h2>
+          <div class="access-box" id="accessBox">
+            <div class="access-title" id="accessTitle">观战模式</div>
+            <div class="access-code" id="accessCode"></div>
+            <div id="accessHint"></div>
+          </div>
           <div class="controls">
             <button class="primary" data-action="new-red">开局</button>
             <button data-action="new-black">执黑</button>
@@ -804,12 +1035,17 @@ WEB_HTML = r"""<!doctype html>
   </main>
   <script>
     const token = new URLSearchParams(location.search).get("token") || "";
+    const clientId = getClientId();
     const boardEl = document.getElementById("board");
     const messageEl = document.getElementById("message");
     const timelineLogEl = document.getElementById("timelineLog");
     const pageThemeSelect = document.getElementById("pageThemeSelect");
     const boardThemeSelect = document.getElementById("boardThemeSelect");
     const soundToggle = document.getElementById("soundToggle");
+    const accessBoxEl = document.getElementById("accessBox");
+    const accessTitleEl = document.getElementById("accessTitle");
+    const accessCodeEl = document.getElementById("accessCode");
+    const accessHintEl = document.getElementById("accessHint");
     const turnPillEl = document.getElementById("turnPill");
     const progressTextEl = document.getElementById("progressText");
     const progressFillEl = document.getElementById("progressFill");
@@ -831,6 +1067,22 @@ WEB_HTML = r"""<!doctype html>
     function pointY(y) { return boardView.top + y * boardView.cell; }
     function pctX(value) { return (value / boardView.w * 100) + "%"; }
     function pctY(value) { return (value / boardView.h * 100) + "%"; }
+
+    function getClientId() {
+      const key = "xiangqi_webui_client_id";
+      let value = localStorage.getItem(key) || "";
+      if (!value) {
+        value = (window.crypto && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : "client-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+        localStorage.setItem(key, value);
+      }
+      return value;
+    }
+
+    function hasControl() {
+      return !!(state && state.can_control);
+    }
 
     function applyPageTheme(theme) {
       const selectedTheme = ["light", "dark"].includes(theme) ? theme : "light";
@@ -952,12 +1204,13 @@ WEB_HTML = r"""<!doctype html>
     }
 
     function isOwnPiece(piece) {
-      return piece && state && state.game_active && state.turn_owner === "player" && piece.color === state.player_color;
+      return piece && state && state.can_control && state.game_active && state.turn_owner === "player" && piece.color === state.player_color;
     }
 
     function render() {
       boardEl.innerHTML = "";
       if (!state) return;
+      renderAccess();
       const turnText = state.processing_label || (state.game_active ? "当前行棋：" + state.side_to_move_label : state.status);
       turnPillEl.textContent = turnText;
       turnPillEl.classList.toggle("thinking", !!state.processing);
@@ -974,9 +1227,30 @@ WEB_HTML = r"""<!doctype html>
       });
 
       renderTimeline(timelineLogEl, state.timeline);
-      document.querySelector('[data-action="undo"]').disabled = busy || !state.can_undo;
-      document.querySelector('[data-action="hint"]').disabled = busy || !state.game_active || state.turn_owner !== "player";
-      document.querySelector('[data-action="resign"]').disabled = busy || !state.game_active;
+      const canControl = hasControl();
+      document.querySelector('[data-action="new-red"]').disabled = busy || !canControl;
+      document.querySelector('[data-action="new-black"]').disabled = busy || !canControl;
+      document.querySelector('[data-action="restart-red"]').disabled = busy || !canControl;
+      document.querySelector('[data-action="restart-black"]').disabled = busy || !canControl;
+      document.querySelector('[data-action="undo"]').disabled = busy || !canControl || !state.can_undo;
+      document.querySelector('[data-action="hint"]').disabled = busy || !canControl || !state.game_active || state.turn_owner !== "player";
+      document.querySelector('[data-action="resign"]').disabled = busy || !canControl || !state.game_active;
+    }
+
+    function renderAccess() {
+      const access = state.access || {};
+      const canControl = hasControl();
+      accessBoxEl.classList.toggle("spectator", !canControl);
+      accessTitleEl.textContent = canControl ? "控制模式" : "观战模式";
+      if (canControl) {
+        accessCodeEl.textContent = "";
+        accessHintEl.textContent = "这个浏览器可以控制当前棋局。";
+        return;
+      }
+      accessCodeEl.textContent = access.verify_code || state.verify_code || "------";
+      const expires = Number(access.verify_expires_in || 0);
+      const suffix = expires > 0 ? "（约 " + Math.ceil(expires / 60) + " 分钟内有效）" : "";
+      accessHintEl.textContent = (access.verify_hint || state.verify_hint || "请链接发起人发送页面验证码获取控制权。") + suffix;
     }
 
     function renderBoardSvg() {
@@ -1134,6 +1408,10 @@ WEB_HTML = r"""<!doctype html>
     }
 
     async function onCellClick(c, piece) {
+      if (state && !state.can_control) {
+        setMessage(state.verify_hint || "观战模式下不能操作棋局。", true);
+        return;
+      }
       if (busy || !state || !state.game_active || state.turn_owner !== "player") return;
       if (!selected) {
         if (isOwnPiece(piece)) {
@@ -1172,13 +1450,17 @@ WEB_HTML = r"""<!doctype html>
         setMessage("缺少 token，请在聊天里发送 棋局链接。", true);
         return;
       }
+      if (state && !state.can_control) {
+        setMessage(state.verify_hint || "观战模式下不能操作棋局。", true);
+        return;
+      }
       busy = true;
       render();
       try {
         const resp = await fetch(path, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, ...body })
+          body: JSON.stringify({ token, client_id: clientId, ...body })
         });
         const data = await resp.json();
         if (data.state) {
@@ -1230,7 +1512,7 @@ WEB_HTML = r"""<!doctype html>
         return;
       }
       try {
-        const resp = await fetch("api/state?token=" + encodeURIComponent(token));
+        const resp = await fetch("api/state?token=" + encodeURIComponent(token) + "&client_id=" + encodeURIComponent(clientId));
         const data = await resp.json();
         if (!data.ok) {
           setMessage(data.error || "无法载入棋局。", true);

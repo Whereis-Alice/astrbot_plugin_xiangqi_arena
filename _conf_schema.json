@@ -90,6 +90,12 @@
     "default": 86400,
     "hint": "默认 1 天。填 0 表示插件运行期间不过期；插件重启后仍需重新发送“棋局链接”生成新 token。"
   },
+  "webui_control_code_ttl_seconds": {
+    "description": "WebUI 控制验证码有效期秒数",
+    "type": "int",
+    "default": 300,
+    "hint": "默认 5 分钟。群聊链接打开后默认只能观战，页面显示验证码；只有生成链接的人发送“棋局验证 验证码”后，该浏览器才能控制棋局。"
+  },
   "webui_notify_chat": {
     "description": "网页走棋同步到聊天",
     "type": "bool",

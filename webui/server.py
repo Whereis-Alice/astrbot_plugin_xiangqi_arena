@@ -1151,6 +1151,33 @@ WEB_HTML = r"""<!doctype html>
       osc.stop(start + duration + 0.02);
     }
 
+    function playNoiseTap(start, duration, gainValue) {
+      const ctx = ensureAudio();
+      if (!ctx) return;
+      const length = Math.max(1, Math.floor(ctx.sampleRate * duration));
+      const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < length; i += 1) {
+        const t = i / length;
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 3.2);
+      }
+      const source = ctx.createBufferSource();
+      const filter = ctx.createBiquadFilter();
+      const gain = ctx.createGain();
+      source.buffer = buffer;
+      filter.type = "bandpass";
+      filter.frequency.setValueAtTime(920, start);
+      filter.Q.setValueAtTime(1.55, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(gainValue, start + 0.006);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      source.start(start);
+      source.stop(start + duration + 0.02);
+    }
+
     function speakSound(kind) {
       if (!soundEnabled || !window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") return;
       const text = { capture: "吃", check: "将军" }[kind];
@@ -1179,8 +1206,10 @@ WEB_HTML = r"""<!doctype html>
         playTone(now + .08, 440, .12, .14, "triangle");
         playTone(now + .18, 550, .14, .10, "sine");
       } else {
-        playTone(now, 210, .12, .18, "triangle");
-        playTone(now + .075, 315, .10, .12, "sine");
+        playNoiseTap(now, .075, .24);
+        playTone(now, 520, .055, .25, "square");
+        playTone(now + .035, 245, .15, .26, "triangle");
+        playTone(now + .095, 390, .10, .16, "sine");
       }
       speakSound(kind);
     }

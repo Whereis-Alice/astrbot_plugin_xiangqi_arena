@@ -88,6 +88,8 @@ class XiangqiArenaPlugin(Star):
         self._llm_talk_cooldown_until = 0.0
         self._session_locks: dict[str, asyncio.Lock] = {}
         self._webui_server: XiangqiWebServer | None = None
+        self._webui_tasks: dict[str, asyncio.Task] = {}
+        self._webui_processing: dict[str, str] = {}
         self._pikafish_http_proc: asyncio.subprocess.Process | None = None
         self._pikafish_http_log_tasks: list[asyncio.Task] = []
         self._pikafish_http_recent_logs: list[str] = []
@@ -295,6 +297,12 @@ class XiangqiArenaPlugin(Star):
         yield event.plain_result(message)
 
     async def terminate(self):
+        for task in list(self._webui_tasks.values()):
+            task.cancel()
+        if self._webui_tasks:
+            await asyncio.gather(*self._webui_tasks.values(), return_exceptions=True)
+        self._webui_tasks.clear()
+        self._webui_processing.clear()
         if self._webui_server is not None:
             await self._webui_server.stop()
             self._webui_server = None
@@ -730,7 +738,7 @@ class XiangqiArenaPlugin(Star):
 
     def _render_session_board(self, session_id: str, board: Board) -> Path:
         filename = session_id.replace("/", "_").replace(":", "_") + ".png"
-        return render_board(board, self.board_dir / filename, self._image_scale())
+        return render_board(board, self.board_dir / filename, self._image_scale(), self._board_image_theme())
 
     def _session_lock(self, session_id: str) -> asyncio.Lock:
         lock = self._session_locks.get(session_id)
@@ -739,15 +747,24 @@ class XiangqiArenaPlugin(Star):
             self._session_locks[session_id] = lock
         return lock
 
+    def _cancel_webui_task(self, session_id: str) -> None:
+        task = self._webui_tasks.pop(session_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+        self._webui_processing.pop(session_id, None)
+
     async def webui_get_state(self, session_id: str) -> dict[str, Any]:
         return self._serialize_webui_state(session_id, self.store.load(session_id))
 
     async def webui_start_game(self, session_id: str, player_color: str, force: bool = False) -> dict[str, Any]:
+        if force:
+            self._cancel_webui_task(session_id)
         result = await self._create_new_game(session_id, player_color, event=WebEventProxy(session_id), force=force)
         board = result.get("board")
         if not result["ok"]:
             return {"ok": False, "error": result["error"], "state": self._serialize_webui_state(session_id, board)}
 
+        self._cancel_webui_task(session_id)
         message = result["message"]
         talk_lines = result.get("talk_lines")
         await self._send_webui_chat_sync(session_id, message, board, talk_lines)
@@ -765,25 +782,151 @@ class XiangqiArenaPlugin(Star):
         except ParseError as exc:
             return {"ok": False, "error": str(exc), "state": await self.webui_get_state(session_id)}
 
-        outcome = await self._play_player_turn(WebEventProxy(session_id), session_id, from_pos, to_pos)
-        if not outcome.ok:
-            return {
-                "ok": False,
-                "error": outcome.error,
-                "state": self._serialize_webui_state(session_id, outcome.board or self.store.load(session_id)),
-            }
+        async with self._session_lock(session_id):
+            board = self.store.load(session_id)
+            if board is None:
+                return {"ok": False, "error": "当前没有对局，请先开局。", "state": self._serialize_webui_state(session_id, None)}
+            player_color = board.player_color
+            if board.side_to_move != player_color:
+                return {"ok": False, "error": "当前不是你的回合。", "state": self._serialize_webui_state(session_id, board)}
 
-        await self._send_webui_chat_sync(session_id, outcome.summary_text, outcome.board, outcome.talk_lines)
+            try:
+                player_move = self._apply_player_move(board, from_pos, to_pos, player_color)
+            except (IllegalMoveError, ValueError) as exc:
+                return {"ok": False, "error": str(exc), "state": self._serialize_webui_state(session_id, board)}
+
+            message_parts: list[str] = []
+            player_only_summary = self._format_player_move_summary(player_move)
+            if player_only_summary:
+                message_parts.append(player_only_summary)
+            if self._append_endgame_message(board, opponent(player_color), message_parts, winner_is_player=True):
+                self.store.delete(session_id)
+                message = " ".join(message_parts).strip()
+                await self._send_webui_chat_sync(session_id, message, board, None)
+                return {
+                    "ok": True,
+                    "message": message,
+                    "ended": True,
+                    "sound": "capture" if player_move.captured else "move",
+                    "move": self._serialize_move(player_move),
+                    "state": self._serialize_webui_state(session_id, board, ended=True),
+                }
+
+            self.store.save(session_id, board)
+            self._webui_processing[session_id] = "engine"
+            previous = self._webui_tasks.get(session_id)
+            if previous is not None and not previous.done():
+                previous.cancel()
+            task = asyncio.create_task(self._finish_webui_bot_turn(session_id, player_move.to_dict()))
+            self._webui_tasks[session_id] = task
+            message = " ".join(message_parts).strip() or f"你走了 {describe_move(player_move)}"
+            state = self._serialize_webui_state(session_id, board)
+
         return {
             "ok": True,
-            "message": outcome.summary_text,
-            "talk": self._format_talk_lines(outcome.talk_lines),
-            "ended": outcome.ended,
-            "state": self._serialize_webui_state(session_id, outcome.board, ended=outcome.ended),
+            "message": message,
+            "pending_bot": True,
+            "sound": "capture" if player_move.captured else "move",
+            "move": self._serialize_move(player_move),
+            "state": state,
         }
+
+    async def _finish_webui_bot_turn(self, session_id: str, player_move_data: dict[str, Any]) -> None:
+        event = WebEventProxy(session_id)
+        player_move = Move.from_dict(player_move_data)
+        summary_text = ""
+        talk_lines: list[str] | None = None
+        board_for_sync: Board | None = None
+        try:
+            async with self._session_lock(session_id):
+                board = self.store.load(session_id)
+                if board is None:
+                    return
+                player_color = board.player_color
+                bot_color = opponent(player_color)
+                if board.side_to_move != bot_color or not self._same_move(board.last_move, player_move):
+                    return
+                board_snapshot = board.clone()
+                expected_history_len = len(board.history)
+
+            bot_move, bot_reason = await self._choose_bot_move(board_snapshot, bot_color)
+
+            async with self._session_lock(session_id):
+                board = self.store.load(session_id)
+                if board is None:
+                    return
+                player_color = board.player_color
+                bot_color = opponent(player_color)
+                if (
+                    board.side_to_move != bot_color
+                    or len(board.history) != expected_history_len
+                    or not self._same_move(board.last_move, player_move)
+                ):
+                    return
+
+                message_parts: list[str] = []
+                if bot_move is None:
+                    message_parts.append("我无合法走法，本局结束。")
+                    self.store.delete(session_id)
+                    self._webui_processing.pop(session_id, None)
+                    summary_text = " ".join(message_parts).strip()
+                    board_for_sync = board.clone()
+                else:
+                    board.push_state()
+                    board.apply_move(bot_move.from_pos, bot_move.to_pos)
+                    summary = self._format_turn_summary(player_move, bot_move)
+                    if summary:
+                        message_parts = [summary]
+                    if summary and bot_reason and self._engine_details_in_chat():
+                        message_parts.append(f"（{bot_reason}）")
+                    player_in_check = is_in_check(board, player_color)
+                    if player_in_check:
+                        message_parts.append("你现在被将军。")
+                    logger.info(
+                        "%s webui async turn: session=%s player=%s bot=%s reason=%s",
+                        PLUGIN_LOG_NAME,
+                        session_id,
+                        describe_move(player_move),
+                        describe_move(bot_move),
+                        bot_reason,
+                    )
+                    self._remember_turn(board, player_move, bot_move, None, player_in_check)
+                    ended = self._append_endgame_message(board, player_color, message_parts, winner_is_player=False)
+                    if ended:
+                        self.store.delete(session_id)
+                        self._webui_processing.pop(session_id, None)
+                    else:
+                        self.store.save(session_id, board)
+                        self._webui_processing[session_id] = "talk"
+                    summary_text = " ".join(message_parts).strip()
+                    board_for_sync = board.clone()
+
+            if bot_move is not None:
+                talk_lines = await self._generate_bot_talk(event, board_for_sync, bot_move, bot_reason, bot_color, player_move)
+                async with self._session_lock(session_id):
+                    current = self.store.load(session_id)
+                    if current is not None:
+                        for line in talk_lines or []:
+                            clean = re.sub(r"\s+", " ", line).strip()
+                            if clean:
+                                current.talk_log.append(clean)
+                        self.store.save(session_id, current)
+                    self._webui_processing.pop(session_id, None)
+
+            await self._send_webui_chat_sync(session_id, summary_text, board_for_sync, talk_lines)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("%s webui bot turn failed: session=%s error=%r", PLUGIN_LOG_NAME, session_id, exc)
+        finally:
+            self._webui_processing.pop(session_id, None)
+            task = self._webui_tasks.get(session_id)
+            if task is asyncio.current_task():
+                self._webui_tasks.pop(session_id, None)
 
     async def webui_undo(self, session_id: str) -> dict[str, Any]:
         async with self._session_lock(session_id):
+            self._cancel_webui_task(session_id)
             board = self.store.load(session_id)
             if board is None:
                 return {"ok": False, "error": "当前没有对局，请先开局。", "state": self._serialize_webui_state(session_id, None)}
@@ -800,6 +943,7 @@ class XiangqiArenaPlugin(Star):
 
     async def webui_resign(self, session_id: str) -> dict[str, Any]:
         async with self._session_lock(session_id):
+            self._cancel_webui_task(session_id)
             board = self.store.load(session_id)
             if board is None:
                 return {"ok": False, "error": "当前没有对局。", "state": self._serialize_webui_state(session_id, None)}
@@ -834,11 +978,24 @@ class XiangqiArenaPlugin(Star):
             legal = [self._serialize_move(move) for move in legal_moves(display_board, player_color)]
         status_text = "当前没有对局。" if board is None else "本局结束。" if ended else self._webui_status_text(display_board)
         in_check = bool(board is not None and not ended and is_in_check(display_board, display_board.side_to_move))
+        processing = "" if ended else self._webui_processing.get(session_id, "")
+        processing_label = {"engine": "Bot 正在思考", "talk": "Bot 正在组织台词"}.get(processing, "")
+        ply_count = len(display_board.history)
+        round_count = (ply_count + 1) // 2 if active else 0
+        progress_label = "未开局" if board is None else "本局结束" if ended else f"第 {max(round_count, 1)} 回合 · 已走 {ply_count} 手"
         return {
             "session": self._short_session_label(session_id),
             "game_active": active,
             "ended": ended,
             "status": status_text,
+            "processing": processing,
+            "processing_label": processing_label,
+            "bot_thinking": processing == "engine",
+            "progress": {
+                "ply": ply_count,
+                "round": round_count,
+                "label": progress_label,
+            },
             "side_to_move": display_board.side_to_move,
             "side_to_move_label": self._side_label(display_board.side_to_move),
             "turn_owner": "player" if active and display_board.side_to_move == player_color else "bot",
@@ -851,8 +1008,8 @@ class XiangqiArenaPlugin(Star):
             "last_move": None if display_board.last_move is None else self._serialize_move(display_board.last_move),
             "legal_moves": legal,
             "grid": [[self._serialize_piece(piece) for piece in row] for row in display_board.grid],
-            "move_log": list(display_board.move_log[-8:]),
-            "talk_log": list(display_board.talk_log[-8:]),
+            "move_log": list(display_board.move_log),
+            "talk_log": list(display_board.talk_log),
             "coordinates": {
                 "files": [chr(ord("a") + index) for index in range(9)],
                 "ranks": [str(index) for index in range(10)],
@@ -873,6 +1030,16 @@ class XiangqiArenaPlugin(Star):
             "captured": self._serialize_piece(move.captured),
             "text": describe_move(move),
         }
+
+    def _same_move(self, left: Move | None, right: Move | None) -> bool:
+        if left is None or right is None:
+            return left is right
+        return (
+            left.from_pos == right.from_pos
+            and left.to_pos == right.to_pos
+            and left.piece == right.piece
+            and left.captured == right.captured
+        )
 
     def _webui_status_text(self, board: Board) -> str:
         side = self._side_label(board.side_to_move)
@@ -1033,6 +1200,10 @@ class XiangqiArenaPlugin(Star):
     def _image_scale(self) -> int:
         scale = self._int_config("image_scale", 1, 1, 2)
         return 1 if scale <= 1 else 2
+
+    def _board_image_theme(self) -> str:
+        theme = self._str_config("board_image_theme", "classic").lower()
+        return theme if theme in {"classic", "jade", "dark", "paper"} else "classic"
 
     def _webui_enabled(self) -> bool:
         return self._bool_config("webui_enabled", True)
@@ -1656,12 +1827,10 @@ class XiangqiArenaPlugin(Star):
         if player_in_check:
             note += "；玩家被将军"
         board.move_log.append(note)
-        board.move_log = board.move_log[-8:]
         for line in talk_lines or []:
             clean = re.sub(r"\s+", " ", line).strip()
             if clean:
                 board.talk_log.append(clean)
-        board.talk_log = board.talk_log[-8:]
 
     def _append_endgame_message(
         self,

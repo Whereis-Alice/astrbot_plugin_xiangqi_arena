@@ -208,7 +208,87 @@ WEB_HTML = r"""<!doctype html>
       --warn: #a95525;
       --board: #f3d38d;
       --board-deep: #b77f32;
+      --board-outer: #f4d99f;
+      --board-outer-edge: #9a6a2d;
+      --board-panel: #f7d994;
+      --board-panel-edge: #b98637;
+      --board-paper-a: #f8dfaa;
+      --board-paper-b: #f0ca7d;
+      --board-paper-c: #f7e0ad;
+      --board-river: #f7d994;
+      --board-line: #5b3718;
+      --board-text: #764719;
+      --piece-fill: #fff6dc;
+      --piece-base: #d6ad67;
+      --piece-shadow: rgba(72, 54, 24, .26);
       --grid: min(7.2vw, 62px);
+    }
+
+    body[data-theme="jade"] {
+      --bg: #e8f0ea;
+      --panel: #fbfdf9;
+      --text: #14251e;
+      --muted: #61736a;
+      --accent: #247a67;
+      --accent-weak: #dcefe9;
+      --board-outer: #dcebdc;
+      --board-outer-edge: #2d6b55;
+      --board-panel: #d8e4bd;
+      --board-panel-edge: #6f9b67;
+      --board-paper-a: #e9f1ca;
+      --board-paper-b: #cddda8;
+      --board-paper-c: #eef4d2;
+      --board-river: #dfe9bf;
+      --board-line: #284936;
+      --board-text: #2d6b55;
+      --piece-base: #b8c88b;
+    }
+
+    body[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #101820;
+      --panel: #17232c;
+      --line: #d0a867;
+      --muted: #9cafb6;
+      --text: #e8edf0;
+      --red: #ff5d72;
+      --black: #e8ddc6;
+      --accent: #63cdb6;
+      --accent-weak: rgba(99, 205, 182, .16);
+      --warn: #f0a66e;
+      --board-outer: #1b2632;
+      --board-outer-edge: #9f7943;
+      --board-panel: #23313a;
+      --board-panel-edge: #a78049;
+      --board-paper-a: #263a42;
+      --board-paper-b: #202e36;
+      --board-paper-c: #314850;
+      --board-river: #2b3f43;
+      --board-line: #d0a867;
+      --board-text: #e5bd77;
+      --piece-fill: #1b232b;
+      --piece-base: #6e5736;
+      --piece-shadow: rgba(0, 0, 0, .48);
+    }
+
+    body[data-theme="paper"] {
+      --bg: #eee9dd;
+      --panel: #fffaf0;
+      --text: #2b2118;
+      --muted: #766b5e;
+      --accent: #7d6140;
+      --accent-weak: #eee3ce;
+      --board-outer: #f6ecd2;
+      --board-outer-edge: #7c5b32;
+      --board-panel: #eee0bd;
+      --board-panel-edge: #a47b48;
+      --board-paper-a: #f7efdc;
+      --board-paper-b: #e5d2aa;
+      --board-paper-c: #fbf2dc;
+      --board-river: #f1dfb8;
+      --board-line: #4f3a21;
+      --board-text: #76512b;
+      --piece-base: #c7a66c;
     }
 
     * { box-sizing: border-box; }
@@ -223,7 +303,7 @@ WEB_HTML = r"""<!doctype html>
       font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
     }
 
-    button {
+    button, select {
       font: inherit;
       color: inherit;
       border: 1px solid #c8d2cb;
@@ -234,11 +314,18 @@ WEB_HTML = r"""<!doctype html>
       cursor: pointer;
     }
 
-    button:hover { border-color: var(--accent); }
+    body[data-theme="dark"] button,
+    body[data-theme="dark"] select {
+      border-color: #334653;
+      background: linear-gradient(180deg, #22313d, #192630);
+    }
+
+    button:hover, select:hover { border-color: var(--accent); }
     button:disabled { color: #9aa49e; cursor: not-allowed; background: #f1f4f2; }
+    body[data-theme="dark"] button:disabled { color: #667780; background: #18242d; }
 
     .app {
-      width: min(1180px, calc(100vw - 28px));
+      width: min(1480px, calc(100vw - 28px));
       margin: 0 auto;
       padding: 18px 0 22px;
     }
@@ -266,9 +353,36 @@ WEB_HTML = r"""<!doctype html>
       line-height: 1.4;
     }
 
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-left: auto;
+    }
+
+    .theme-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    .theme-control select {
+      min-height: 34px;
+      padding: 0 30px 0 10px;
+    }
+
+    .sound-toggle {
+      min-height: 34px;
+      min-width: 42px;
+      padding: 0 10px;
+    }
+
     .layout {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 320px;
+      grid-template-columns: minmax(560px, 1fr) minmax(320px, 400px);
       gap: 18px;
       align-items: start;
     }
@@ -278,18 +392,89 @@ WEB_HTML = r"""<!doctype html>
         linear-gradient(180deg, #fffefa, #f8f2e3);
       border: 1px solid #d5bd8b;
       border-radius: 8px;
-      padding: 16px;
-      overflow: auto;
+      padding: 14px;
+      overflow: hidden;
       box-shadow: 0 12px 34px rgba(57, 43, 22, .08);
+      display: grid;
+      gap: 10px;
+      justify-items: center;
+    }
+
+    body[data-theme="dark"] .board-wrap {
+      background: linear-gradient(180deg, #16232d, #111b23);
+      border-color: #35495a;
     }
 
     .board-shell {
-      width: min(100%, calc(var(--grid) * 11.35));
+      width: min(100%, 900px, calc((100vh - 142px) * 1000 / 1120));
       aspect-ratio: 1000 / 1120;
       margin: 0 auto;
       position: relative;
       user-select: none;
       min-width: 420px;
+    }
+
+    .board-head {
+      width: min(100%, 900px, calc((100vh - 142px) * 1000 / 1120));
+      min-width: 420px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      color: var(--text);
+    }
+
+    .turn-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: var(--accent-weak);
+      color: var(--accent);
+      font-size: 14px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .turn-pill.thinking::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 0 0 rgba(31, 122, 99, .35);
+      animation: pulse 1.2s ease-out infinite;
+    }
+
+    .progress-line {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .progress-text {
+      color: var(--muted);
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .progress-track {
+      height: 5px;
+      border-radius: 999px;
+      background: rgba(88, 73, 48, .16);
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), #d49a42);
+      transition: width .28s ease;
     }
 
     .board-svg {
@@ -304,7 +489,7 @@ WEB_HTML = r"""<!doctype html>
     .coord {
       position: absolute;
       transform: translate(-50%, -50%);
-      color: #715226;
+      color: var(--board-text);
       font-size: clamp(12px, 1.2vw, 15px);
       line-height: 1;
       font-weight: 600;
@@ -326,9 +511,16 @@ WEB_HTML = r"""<!doctype html>
       z-index: 4;
     }
 
+    body[data-theme] .intersection,
+    body[data-theme] .intersection:disabled {
+      border: 0;
+      background: transparent;
+    }
+
     .intersection.selected {
       background: rgba(31, 122, 99, .12);
       box-shadow: 0 0 0 3px rgba(31, 122, 99, .42);
+      animation: selectedBreath 1.35s ease-in-out infinite;
     }
 
     .intersection.legal::after {
@@ -342,6 +534,7 @@ WEB_HTML = r"""<!doctype html>
       box-shadow: 0 0 0 5px rgba(31, 122, 99, .12);
     }
     .intersection.last-from, .intersection.last-to { box-shadow: 0 0 0 3px rgba(31, 122, 99, .45); }
+    .intersection.last-to .piece { animation: pieceDrop .28s cubic-bezier(.2, 1.4, .35, 1); }
 
     .piece {
       width: 82%;
@@ -351,7 +544,7 @@ WEB_HTML = r"""<!doctype html>
       place-items: center;
       border: 2px solid currentColor;
       background:
-        radial-gradient(circle at 32% 26%, #fffaf0 0 24%, #f4dca6 56%, #d2a665 100%);
+        radial-gradient(circle at 32% 26%, #fffaf0 0 22%, var(--piece-fill) 52%, var(--piece-base) 100%);
       font-size: clamp(20px, 3.6vw, 34px);
       font-weight: 700;
       line-height: 1;
@@ -359,9 +552,12 @@ WEB_HTML = r"""<!doctype html>
       box-shadow:
         inset 0 0 0 4px rgba(255, 255, 255, .42),
         inset 0 0 0 9px rgba(121, 78, 24, .10),
-        0 4px 9px rgba(72, 54, 24, .26);
+        0 4px 10px var(--piece-shadow);
+      transition: transform .16s ease, opacity .16s ease, filter .16s ease;
     }
 
+    .intersection:hover .piece { transform: translateY(-1px); }
+    .intersection.selected .piece { transform: translateY(-2px) scale(1.06); filter: saturate(1.12); }
     .piece.red { color: var(--red); }
     .piece.black { color: var(--black); }
     .piece.dim { opacity: .68; }
@@ -379,6 +575,8 @@ WEB_HTML = r"""<!doctype html>
       padding: 12px;
       box-shadow: 0 8px 18px rgba(25, 37, 30, .04);
     }
+
+    body[data-theme="dark"] .panel { border-color: #2c3d49; }
 
     .panel h2 {
       margin: 0 0 10px;
@@ -413,24 +611,76 @@ WEB_HTML = r"""<!doctype html>
     .log {
       display: flex;
       flex-direction: column;
-      gap: 7px;
-      max-height: 216px;
+      gap: 8px;
+      max-height: 360px;
       overflow: auto;
-      padding-right: 2px;
+      padding-right: 4px;
       color: #36443b;
       font-size: 13px;
       line-height: 1.35;
+      scrollbar-width: thin;
     }
 
-    .log div {
-      border-bottom: 1px solid #eef1ef;
-      padding-bottom: 7px;
+    body[data-theme="dark"] .log { color: #d7e1e4; }
+
+    .log-card {
+      border: 1px solid rgba(110, 125, 116, .18);
+      border-radius: 8px;
+      padding: 9px 10px;
+      background: rgba(255, 255, 255, .58);
+      display: grid;
+      gap: 6px;
+    }
+
+    body[data-theme="dark"] .log-card {
+      background: rgba(255, 255, 255, .035);
+      border-color: rgba(255, 255, 255, .08);
+    }
+
+    .log-title {
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .log-row {
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
+    .move-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 20px;
+      padding: 0 6px;
+      margin-right: 6px;
+      border-radius: 4px;
+      background: rgba(31, 122, 99, .10);
+      color: var(--accent);
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    @keyframes selectedBreath {
+      0%, 100% { box-shadow: 0 0 0 3px rgba(31, 122, 99, .36), 0 0 0 0 rgba(31, 122, 99, .20); }
+      50% { box-shadow: 0 0 0 3px rgba(31, 122, 99, .58), 0 0 0 9px rgba(31, 122, 99, .08); }
+    }
+
+    @keyframes pieceDrop {
+      0% { transform: translateY(-18%) scale(.92); opacity: .72; }
+      70% { transform: translateY(3%) scale(1.04); opacity: 1; }
+      100% { transform: translateY(0) scale(1); }
+    }
+
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(31, 122, 99, .35); }
+      100% { box-shadow: 0 0 0 10px rgba(31, 122, 99, 0); }
     }
 
     @media (max-width: 900px) {
       :root { --grid: min(8.6vw, 52px); }
       .layout { grid-template-columns: 1fr; }
       .topbar { align-items: flex-start; flex-direction: column; }
+      .top-actions { margin-left: 0; }
       .status { text-align: left; }
       .side { grid-template-columns: 1fr; }
     }
@@ -438,7 +688,8 @@ WEB_HTML = r"""<!doctype html>
     @media (max-width: 560px) {
       .app { width: calc(100vw - 14px); padding-top: 10px; }
       .board-wrap { padding: 8px; }
-      .board-shell { min-width: 360px; }
+      .board-shell, .board-head { min-width: 340px; }
+      .board-head { grid-template-columns: 1fr; }
       .controls { grid-template-columns: 1fr; }
     }
   </style>
@@ -447,10 +698,29 @@ WEB_HTML = r"""<!doctype html>
   <main class="app">
     <div class="topbar">
       <h1>象棋竞技场</h1>
+      <div class="top-actions">
+        <label class="theme-control">
+          <span>皮肤</span>
+          <select id="themeSelect" aria-label="棋盘皮肤">
+            <option value="classic">经典</option>
+            <option value="jade">青玉</option>
+            <option value="dark">夜战</option>
+            <option value="paper">宣纸</option>
+          </select>
+        </label>
+        <button class="sound-toggle" id="soundToggle" type="button" title="落子音效">声</button>
+      </div>
       <div class="status" id="status">连接中</div>
     </div>
     <section class="layout">
       <div class="board-wrap">
+        <div class="board-head">
+          <div class="turn-pill" id="turnPill">等待棋局</div>
+          <div class="progress-line">
+            <div class="progress-text" id="progressText"></div>
+            <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+          </div>
+        </div>
         <div class="board-shell" id="board"></div>
       </div>
       <aside class="side">
@@ -488,9 +758,18 @@ WEB_HTML = r"""<!doctype html>
     const messageEl = document.getElementById("message");
     const moveLogEl = document.getElementById("moveLog");
     const talkLogEl = document.getElementById("talkLog");
+    const themeSelect = document.getElementById("themeSelect");
+    const soundToggle = document.getElementById("soundToggle");
+    const turnPillEl = document.getElementById("turnPill");
+    const progressTextEl = document.getElementById("progressText");
+    const progressFillEl = document.getElementById("progressFill");
     let state = null;
     let selected = null;
     let busy = false;
+    let audioCtx = null;
+    let soundEnabled = localStorage.getItem("xiangqi_sound") !== "off";
+    let lastMoveKey = "";
+    let pollTimer = 0;
 
     const files = ["a","b","c","d","e","f","g","h","i"];
     const ranks = ["0","1","2","3","4","5","6","7","8","9"];
@@ -501,6 +780,62 @@ WEB_HTML = r"""<!doctype html>
     function pointY(y) { return boardView.top + y * boardView.cell; }
     function pctX(value) { return (value / boardView.w * 100) + "%"; }
     function pctY(value) { return (value / boardView.h * 100) + "%"; }
+
+    function applyTheme(theme) {
+      const selectedTheme = ["classic", "jade", "dark", "paper"].includes(theme) ? theme : "classic";
+      document.body.dataset.theme = selectedTheme;
+      themeSelect.value = selectedTheme;
+      localStorage.setItem("xiangqi_theme", selectedTheme);
+    }
+
+    function updateSoundButton() {
+      soundToggle.textContent = soundEnabled ? "声" : "静";
+      soundToggle.classList.toggle("primary", soundEnabled);
+    }
+
+    function ensureAudio() {
+      if (!soundEnabled) return null;
+      const Audio = window.AudioContext || window.webkitAudioContext;
+      if (!Audio) return null;
+      if (!audioCtx) audioCtx = new Audio();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      return audioCtx;
+    }
+
+    function playTone(start, freq, duration, gainValue, type = "triangle") {
+      const ctx = ensureAudio();
+      if (!ctx) return;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(gainValue, start + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + duration + 0.02);
+    }
+
+    function playSound(kind) {
+      const ctx = ensureAudio();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      if (kind === "capture") {
+        playTone(now, 220, .08, .09, "square");
+        playTone(now + .055, 150, .10, .075, "triangle");
+      } else {
+        playTone(now, 180, .075, .065, "triangle");
+        playTone(now + .045, 260, .06, .04, "sine");
+      }
+    }
+
+    function moveKey(move) {
+      if (!move) return "";
+      const captured = move.captured && move.captured.code ? move.captured.code : "";
+      return [move.from, move.to, move.piece && move.piece.code, captured].join(":");
+    }
 
     function setMessage(text, error = false) {
       messageEl.textContent = text || "";
@@ -520,6 +855,12 @@ WEB_HTML = r"""<!doctype html>
       boardEl.innerHTML = "";
       if (!state) return;
       statusEl.textContent = state.status + "  " + state.session;
+      const turnText = state.processing_label || (state.game_active ? "当前行棋：" + state.side_to_move_label : state.status);
+      turnPillEl.textContent = turnText;
+      turnPillEl.classList.toggle("thinking", !!state.processing);
+      progressTextEl.textContent = state.progress ? state.progress.label : "";
+      const ply = state.progress ? state.progress.ply : 0;
+      progressFillEl.style.width = (ply <= 0 ? 0 : Math.min(100, Math.max(6, ply * 4))) + "%";
       const legal = selected ? legalTargets(selected) : new Set();
       const last = state.last_move || {};
 
@@ -529,8 +870,8 @@ WEB_HTML = r"""<!doctype html>
         row.forEach((piece, x) => addIntersection(piece, x, y, legal, last));
       });
 
-      renderLog(moveLogEl, state.move_log);
-      renderLog(talkLogEl, state.talk_log);
+      renderMoveLog(moveLogEl, state.move_log);
+      renderTalkLog(talkLogEl, state.talk_log);
       document.querySelector('[data-action="undo"]').disabled = busy || !state.can_undo;
       document.querySelector('[data-action="hint"]').disabled = busy || !state.game_active || state.turn_owner !== "player";
       document.querySelector('[data-action="resign"]').disabled = busy || !state.game_active;
@@ -551,34 +892,34 @@ WEB_HTML = r"""<!doctype html>
       const markup = [];
       markup.push(`<defs>
         <linearGradient id="boardPaper" x1="0" x2="1" y1="0" y2="1">
-          <stop offset="0" stop-color="#f8dfaa"/>
-          <stop offset=".55" stop-color="#f0ca7d"/>
-          <stop offset="1" stop-color="#f7e0ad"/>
+          <stop offset="0" stop-color="var(--board-paper-a)"/>
+          <stop offset=".55" stop-color="var(--board-paper-b)"/>
+          <stop offset="1" stop-color="var(--board-paper-c)"/>
         </linearGradient>
       </defs>`);
-      markup.push(`<rect x="38" y="38" width="924" height="972" rx="28" fill="#f4d99f" stroke="#9a6a2d" stroke-width="5"/>`);
-      markup.push(`<rect x="74" y="76" width="852" height="858" rx="18" fill="url(#boardPaper)" stroke="#b98637" stroke-width="3"/>`);
-      markup.push(`<rect x="${left}" y="${riverTop + 3}" width="${right - left}" height="${riverBottom - riverTop - 6}" fill="#f7d994" opacity=".96"/>`);
+      markup.push(`<rect x="38" y="38" width="924" height="972" rx="28" fill="var(--board-outer)" stroke="var(--board-outer-edge)" stroke-width="5"/>`);
+      markup.push(`<rect x="74" y="76" width="852" height="858" rx="18" fill="url(#boardPaper)" stroke="var(--board-panel-edge)" stroke-width="3"/>`);
+      markup.push(`<rect x="${left}" y="${riverTop + 3}" width="${right - left}" height="${riverBottom - riverTop - 6}" fill="var(--board-river)" opacity=".96"/>`);
       for (let y = 0; y < 10; y += 1) {
         const py = pointY(y);
         const width = y === 0 || y === 9 ? 3.2 : 2.1;
-        markup.push(`<line x1="${left}" y1="${py}" x2="${right}" y2="${py}" stroke="#5b3718" stroke-width="${width}" stroke-linecap="square"/>`);
+        markup.push(`<line x1="${left}" y1="${py}" x2="${right}" y2="${py}" stroke="var(--board-line)" stroke-width="${width}" stroke-linecap="square"/>`);
       }
       for (let x = 0; x < 9; x += 1) {
         const px = pointX(x);
         const width = x === 0 || x === 8 ? 3.2 : 2.1;
-        markup.push(`<line x1="${px}" y1="${top}" x2="${px}" y2="${riverTop}" stroke="#5b3718" stroke-width="${width}" stroke-linecap="square"/>`);
-        markup.push(`<line x1="${px}" y1="${riverBottom}" x2="${px}" y2="${bottom}" stroke="#5b3718" stroke-width="${width}" stroke-linecap="square"/>`);
+        markup.push(`<line x1="${px}" y1="${top}" x2="${px}" y2="${riverTop}" stroke="var(--board-line)" stroke-width="${width}" stroke-linecap="square"/>`);
+        markup.push(`<line x1="${px}" y1="${riverBottom}" x2="${px}" y2="${bottom}" stroke="var(--board-line)" stroke-width="${width}" stroke-linecap="square"/>`);
       }
-      markup.push(`<line x1="${pointX(3)}" y1="${top}" x2="${pointX(5)}" y2="${pointY(2)}" stroke="#5b3718" stroke-width="2.2"/>`);
-      markup.push(`<line x1="${pointX(5)}" y1="${top}" x2="${pointX(3)}" y2="${pointY(2)}" stroke="#5b3718" stroke-width="2.2"/>`);
-      markup.push(`<line x1="${pointX(3)}" y1="${bottom}" x2="${pointX(5)}" y2="${pointY(7)}" stroke="#5b3718" stroke-width="2.2"/>`);
-      markup.push(`<line x1="${pointX(5)}" y1="${bottom}" x2="${pointX(3)}" y2="${pointY(7)}" stroke="#5b3718" stroke-width="2.2"/>`);
+      markup.push(`<line x1="${pointX(3)}" y1="${top}" x2="${pointX(5)}" y2="${pointY(2)}" stroke="var(--board-line)" stroke-width="2.2"/>`);
+      markup.push(`<line x1="${pointX(5)}" y1="${top}" x2="${pointX(3)}" y2="${pointY(2)}" stroke="var(--board-line)" stroke-width="2.2"/>`);
+      markup.push(`<line x1="${pointX(3)}" y1="${bottom}" x2="${pointX(5)}" y2="${pointY(7)}" stroke="var(--board-line)" stroke-width="2.2"/>`);
+      markup.push(`<line x1="${pointX(5)}" y1="${bottom}" x2="${pointX(3)}" y2="${pointY(7)}" stroke="var(--board-line)" stroke-width="2.2"/>`);
       [[1,2],[7,2],[1,7],[7,7],[0,3],[2,3],[4,3],[6,3],[8,3],[0,6],[2,6],[4,6],[6,6],[8,6]].forEach(([x, y]) => {
         markup.push(markerMarkup(pointX(x), pointY(y), x));
       });
-      markup.push(`<text x="${pointX(2)}" y="${riverTop + cell * .62}" text-anchor="middle" font-size="38" font-weight="700" fill="#764719" font-family="KaiTi, STKaiti, SimSun, serif">楚 河</text>`);
-      markup.push(`<text x="${pointX(6)}" y="${riverTop + cell * .62}" text-anchor="middle" font-size="38" font-weight="700" fill="#764719" font-family="KaiTi, STKaiti, SimSun, serif">汉 界</text>`);
+      markup.push(`<text x="${pointX(2)}" y="${riverTop + cell * .62}" text-anchor="middle" font-size="38" font-weight="700" fill="var(--board-text)" font-family="KaiTi, STKaiti, SimSun, serif">楚 河</text>`);
+      markup.push(`<text x="${pointX(6)}" y="${riverTop + cell * .62}" text-anchor="middle" font-size="38" font-weight="700" fill="var(--board-text)" font-family="KaiTi, STKaiti, SimSun, serif">汉 界</text>`);
       svg.innerHTML = markup.join("");
       return svg;
     }
@@ -593,7 +934,7 @@ WEB_HTML = r"""<!doctype html>
       dirs.forEach(([sx, sy]) => {
         const x = cx + sx * gap;
         const y = cy + sy * gap;
-        parts.push(`<path d="M ${x} ${y} h ${sx * arm} M ${x} ${y} v ${sy * arm}" stroke="#5b3718" stroke-width="2" fill="none" stroke-linecap="square"/>`);
+        parts.push(`<path d="M ${x} ${y} h ${sx * arm} M ${x} ${y} v ${sy * arm}" stroke="var(--board-line)" stroke-width="2" fill="none" stroke-linecap="square"/>`);
       });
       return parts.join("");
     }
@@ -640,13 +981,63 @@ WEB_HTML = r"""<!doctype html>
       boardEl.appendChild(node);
     }
 
-    function renderLog(target, items) {
+    function renderMoveLog(target, items) {
       target.innerHTML = "";
-      (items || []).slice().reverse().forEach(item => {
-        const node = document.createElement("div");
-        node.textContent = item;
-        target.appendChild(node);
+      const list = items || [];
+      list.slice().reverse().forEach((item, offset) => {
+        const index = list.length - offset;
+        const card = document.createElement("div");
+        card.className = "log-card";
+        const title = document.createElement("div");
+        title.className = "log-title";
+        title.textContent = "#" + index + " 回合";
+        card.appendChild(title);
+        String(item).split(/[；;]/).filter(Boolean).forEach(part => {
+          const row = document.createElement("div");
+          row.className = "log-row";
+          const move = part.match(/[a-i][0-9]\s*->\s*[a-i][0-9]/i);
+          if (move) {
+            const chip = document.createElement("span");
+            chip.className = "move-chip";
+            chip.textContent = move[0].replace(/\s+/g, " ");
+            row.appendChild(chip);
+            row.appendChild(document.createTextNode(part.replace(move[0], "").trim()));
+          } else {
+            row.textContent = part.trim();
+          }
+          card.appendChild(row);
+        });
+        target.appendChild(card);
       });
+      if (!items || !items.length) {
+        const empty = document.createElement("div");
+        empty.className = "log-card";
+        empty.textContent = "暂无走法";
+        target.appendChild(empty);
+      }
+    }
+
+    function renderTalkLog(target, items) {
+      target.innerHTML = "";
+      (items || []).slice().reverse().forEach((item, offset) => {
+        const card = document.createElement("div");
+        card.className = "log-card";
+        const title = document.createElement("div");
+        title.className = "log-title";
+        title.textContent = "Bot 台词 #" + ((items || []).length - offset);
+        const row = document.createElement("div");
+        row.className = "log-row";
+        row.textContent = item;
+        card.appendChild(title);
+        card.appendChild(row);
+        target.appendChild(card);
+      });
+      if (!items || !items.length) {
+        const empty = document.createElement("div");
+        empty.className = "log-card";
+        empty.textContent = "暂无台词";
+        target.appendChild(empty);
+      }
     }
 
     async function onCellClick(c, piece) {
@@ -696,19 +1087,45 @@ WEB_HTML = r"""<!doctype html>
           body: JSON.stringify({ token, ...body })
         });
         const data = await resp.json();
-        if (data.state) state = data.state;
+        if (data.sound) playSound(data.sound);
+        if (data.state) {
+          applyServerState(data.state, { playServerMove: false });
+          lastMoveKey = moveKey(data.state.last_move);
+        }
         if (!data.ok) {
           setMessage(data.error || "操作失败。", true);
         } else {
           const talk = Array.isArray(data.talk) && data.talk.length ? "\n" + data.talk.join("\n") : "";
-          setMessage((data.message || "") + talk);
+          const suffix = data.pending_bot ? "\nBot 正在思考..." : "";
+          setMessage((data.message || "") + talk + suffix);
         }
       } catch (err) {
         setMessage(String(err), true);
       } finally {
         busy = false;
         render();
+        schedulePoll();
       }
+    }
+
+    function applyServerState(nextState, options = {}) {
+      const previousKey = moveKey(state && state.last_move);
+      state = nextState;
+      const nextKey = moveKey(state && state.last_move);
+      if (options.playServerMove && nextKey && nextKey !== previousKey && nextKey !== lastMoveKey) {
+        playSound(state.last_move && state.last_move.captured ? "capture" : "move");
+        lastMoveKey = nextKey;
+      }
+      if (!state.processing && messageEl.textContent.includes("Bot 正在思考")) {
+        setMessage("");
+      }
+      render();
+    }
+
+    function schedulePoll() {
+      clearTimeout(pollTimer);
+      const delay = state && state.processing ? 850 : 5000;
+      pollTimer = setTimeout(loadState, delay);
     }
 
     async function loadState() {
@@ -725,11 +1142,12 @@ WEB_HTML = r"""<!doctype html>
           return;
         }
         const firstLoad = state === null;
-        state = data.state;
-        if (firstLoad || !state.game_active) selected = null;
-        render();
+        if (firstLoad || !data.state.game_active || data.state.turn_owner !== "player") selected = null;
+        applyServerState(data.state, { playServerMove: !firstLoad });
       } catch (err) {
         setMessage(String(err), true);
+      } finally {
+        schedulePoll();
       }
     }
 
@@ -740,9 +1158,17 @@ WEB_HTML = r"""<!doctype html>
     document.querySelector('[data-action="hint"]').addEventListener("click", () => post("api/hint"));
     document.querySelector('[data-action="undo"]').addEventListener("click", () => post("api/undo"));
     document.querySelector('[data-action="resign"]').addEventListener("click", () => post("api/resign"));
+    themeSelect.addEventListener("change", () => applyTheme(themeSelect.value));
+    soundToggle.addEventListener("click", () => {
+      soundEnabled = !soundEnabled;
+      localStorage.setItem("xiangqi_sound", soundEnabled ? "on" : "off");
+      updateSoundButton();
+      if (soundEnabled) playSound("move");
+    });
 
+    applyTheme(localStorage.getItem("xiangqi_theme") || "classic");
+    updateSoundButton();
     loadState();
-    setInterval(loadState, 5000);
   </script>
 </body>
 </html>

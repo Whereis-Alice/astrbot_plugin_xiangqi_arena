@@ -330,5 +330,17 @@
     "type": "int",
     "default": 1,
     "hint": "1 为默认大小；2 为高清大图。"
+  },
+  "board_image_theme": {
+    "description": "聊天棋盘图片皮肤",
+    "type": "string",
+    "default": "classic",
+    "options": [
+      "classic",
+      "jade",
+      "dark",
+      "paper"
+    ],
+    "hint": "影响聊天里发送的棋盘 PNG。classic 为经典木纹，jade 为青玉，dark 为暗色夜战，paper 为宣纸。WebUI 皮肤可在网页右上角单独切换。"
   }
 }

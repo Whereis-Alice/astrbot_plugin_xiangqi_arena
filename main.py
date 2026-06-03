@@ -283,12 +283,12 @@ class XiangqiArenaPlugin(Star):
         )
 
     @filter.command("棋局验证", alias=["网页验证", "绑定棋局", "验证棋局"])
-    async def webui_verify_control(self, event: AstrMessageEvent, code: str | None = None):
+    async def webui_verify_control(self, event: AstrMessageEvent, code: str = ""):
         """验证 WebUI 控制权。只有链接发起人发送验证码才会生效。"""
         if self._webui_server is None:
             yield event.plain_result("WebUI 服务未运行，请先发送“网页下棋”生成链接。")
             return
-        verify_code = self._extract_webui_verify_code(code or getattr(event, "message_str", ""))
+        verify_code = self._extract_webui_verify_code_from_event(event, code)
         if not verify_code:
             yield event.plain_result("请发送：棋局验证 123456")
             return
@@ -762,6 +762,30 @@ class XiangqiArenaPlugin(Star):
     def _extract_webui_verify_code(self, raw_text: str) -> str:
         match = re.search(r"(?<!\d)(\d{6})(?!\d)", str(raw_text or ""))
         return match.group(1) if match else ""
+
+    def _extract_webui_verify_code_from_event(self, event: AstrMessageEvent, code: Any = "") -> str:
+        candidates = [str(code or "")]
+        for getter_name in ("get_message_str", "get_message_outline"):
+            getter = getattr(event, getter_name, None)
+            if callable(getter):
+                try:
+                    candidates.append(str(getter() or ""))
+                except Exception:
+                    pass
+        for attr_name in ("message_str", "raw_message"):
+            candidates.append(str(getattr(event, attr_name, "") or ""))
+        get_messages = getattr(event, "get_messages", None)
+        if callable(get_messages):
+            try:
+                for part in get_messages() or []:
+                    candidates.append(str(getattr(part, "text", "") or ""))
+            except Exception:
+                pass
+        for candidate in candidates:
+            verify_code = self._extract_webui_verify_code(candidate)
+            if verify_code:
+                return verify_code
+        return ""
 
     def _session_id(self, event: AstrMessageEvent) -> str:
         origin = getattr(event, "unified_msg_origin", None)

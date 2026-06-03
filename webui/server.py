@@ -1109,15 +1109,20 @@ WEB_HTML = r"""<!doctype html>
       const Audio = window.AudioContext || window.webkitAudioContext;
       if (!Audio) return null;
       if (!audioCtx) audioCtx = new Audio();
-      if (audioCtx.state === "suspended") void audioCtx.resume();
       return audioCtx;
     }
 
-    function unlockAudio() {
+    async function unlockAudio() {
       const ctx = ensureAudio();
-      if (!ctx) return;
-      if (ctx.state === "suspended") void ctx.resume();
+      if (!ctx) return null;
+      try {
+        if (ctx.state === "suspended") await ctx.resume();
+      } catch (err) {
+        console.warn("xiangqi audio unlock failed", err);
+        return null;
+      }
       if (window.speechSynthesis) loadZhVoice();
+      return ctx;
     }
 
     function loadZhVoice() {
@@ -1161,29 +1166,30 @@ WEB_HTML = r"""<!doctype html>
       window.speechSynthesis.speak(utterance);
     }
 
-    function playSound(kind) {
-      const ctx = ensureAudio();
+    async function playSound(kind) {
+      const ctx = await unlockAudio();
       if (!ctx) return;
-      const now = ctx.currentTime;
+      if (ctx.state !== "running") return;
+      const now = ctx.currentTime + 0.018;
       if (kind === "capture") {
-        playTone(now, 220, .08, .13, "square");
-        playTone(now + .055, 150, .10, .11, "triangle");
+        playTone(now, 230, .11, .18, "square");
+        playTone(now + .07, 145, .13, .15, "triangle");
       } else if (kind === "check") {
-        playTone(now, 330, .08, .12, "square");
-        playTone(now + .07, 440, .10, .10, "triangle");
-        playTone(now + .16, 550, .12, .08, "sine");
+        playTone(now, 330, .10, .17, "square");
+        playTone(now + .08, 440, .12, .14, "triangle");
+        playTone(now + .18, 550, .14, .10, "sine");
       } else {
-        playTone(now, 180, .075, .10, "triangle");
-        playTone(now + .045, 260, .06, .065, "sine");
+        playTone(now, 210, .12, .18, "triangle");
+        playTone(now + .075, 315, .10, .12, "sine");
       }
       speakSound(kind);
     }
 
-    function playMoveSounds(kind, nextState) {
+    async function playMoveSounds(kind, nextState) {
       if (!kind) return;
-      playSound(kind);
+      await playSound(kind);
       if (nextState && nextState.in_check) {
-        window.setTimeout(() => playSound("check"), kind === "capture" ? 210 : 130);
+        window.setTimeout(() => { void playSound("check"); }, kind === "capture" ? 210 : 130);
       }
     }
 
@@ -1445,7 +1451,7 @@ WEB_HTML = r"""<!doctype html>
     }
 
     async function post(path, body = {}) {
-      unlockAudio();
+      await unlockAudio();
       if (!token) {
         setMessage("缺少 token，请在聊天里发送 棋局链接。", true);
         return;
@@ -1467,7 +1473,7 @@ WEB_HTML = r"""<!doctype html>
           applyServerState(data.state, { playServerMove: false });
           lastMoveKey = moveKey(data.state.last_move);
         }
-        if (data.sound) playMoveSounds(data.sound, data.state);
+        if (data.sound) void playMoveSounds(data.sound, data.state);
         if (!data.ok) {
           setMessage(data.error || "操作失败。", true);
         } else {
@@ -1490,7 +1496,7 @@ WEB_HTML = r"""<!doctype html>
       state = nextState;
       const nextKey = moveKey(state && state.last_move);
       if (options.playServerMove && nextKey && nextKey !== previousKey && nextKey !== lastMoveKey) {
-        playMoveSounds(state.last_move && state.last_move.captured ? "capture" : "move", state);
+        void playMoveSounds(state.last_move && state.last_move.captured ? "capture" : "move", state);
         lastMoveKey = nextKey;
       }
       const botName = (state && state.bot_name) || "Bot";
@@ -1542,8 +1548,7 @@ WEB_HTML = r"""<!doctype html>
       localStorage.setItem("xiangqi_sound", soundEnabled ? "on" : "off");
       updateSoundButton();
       if (soundEnabled) {
-        unlockAudio();
-        playSound("move");
+        void playSound("move");
       } else if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
       }

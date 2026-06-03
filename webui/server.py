@@ -896,7 +896,7 @@ WEB_HTML = r"""<!doctype html>
 
     function speakSound(kind) {
       if (!soundEnabled || !window.speechSynthesis || typeof SpeechSynthesisUtterance === "undefined") return;
-      const text = { move: "落子", capture: "吃子", check: "将军" }[kind];
+      const text = { capture: "吃", check: "将军" }[kind];
       if (!text) return;
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);

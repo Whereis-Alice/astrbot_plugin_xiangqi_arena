@@ -252,7 +252,7 @@ WEB_HTML = r"""<!doctype html>
 
     body[data-board-theme="dark"] {
       --red: rgba(255, 96, 119, .84);
-      --black: rgba(242, 224, 196, .88);
+      --black: rgba(33, 61, 52, .96);
       --board-outer: #1b2632;
       --board-outer-edge: #9f7943;
       --board-panel: #23313a;
@@ -570,7 +570,7 @@ WEB_HTML = r"""<!doctype html>
     .piece.black { color: var(--black); }
     body[data-board-theme="dark"] .piece.black {
       background:
-        radial-gradient(circle at 32% 26%, #4e5b52 0 20%, #2d3430 54%, #6f5c3d 100%);
+        radial-gradient(circle at 32% 26%, #f0e3bf 0 20%, #d9d8bd 56%, #667a58 100%);
     }
     .piece.dim { opacity: .68; }
 

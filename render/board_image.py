@@ -27,11 +27,11 @@ THEMES: dict[str, dict[str, str]] = {
         "river": "#f7d998",
         "line": LINE_COLOR,
         "river_text": "#7a4519",
-        "red": "#be2434",
-        "black": "#2d261d",
-        "piece_fill": "#fff2cc",
-        "piece_base": "#b9833a",
-        "piece_shadow": "#76542c",
+        "red": "#c43846",
+        "black": "#3b3024",
+        "piece_fill": "#fff6dd",
+        "piece_base": "#d1aa68",
+        "piece_shadow": "#9c7a4a",
         "status_fill": "#f7e8c3",
         "highlight": HIGHLIGHT_COLOR,
     },
@@ -46,11 +46,11 @@ THEMES: dict[str, dict[str, str]] = {
         "river": "#dfe9bf",
         "line": "#284936",
         "river_text": "#2d6b55",
-        "red": "#d72845",
-        "black": "#1f352a",
-        "piece_fill": "#fff8df",
-        "piece_base": "#89a96a",
-        "piece_shadow": "#536943",
+        "red": "#cf3448",
+        "black": "#2c4638",
+        "piece_fill": "#fffbe8",
+        "piece_base": "#b6ca8e",
+        "piece_shadow": "#80956d",
         "status_fill": "#eef5dc",
         "highlight": "#237a68",
     },
@@ -65,11 +65,14 @@ THEMES: dict[str, dict[str, str]] = {
         "river": "#2b3f43",
         "line": "#d0a867",
         "river_text": "#e5bd77",
-        "red": "#ff5d72",
-        "black": "#e8ddc6",
-        "piece_fill": "#1b232b",
-        "piece_base": "#6e5736",
-        "piece_shadow": "#070b0f",
+        "red": "#ff6d80",
+        "black": "#f3e2c8",
+        "piece_fill": "#ead8b6",
+        "piece_base": "#9c7a4c",
+        "piece_shadow": "#05080b",
+        "black_piece_fill": "#2d3430",
+        "black_piece_base": "#6f5c3d",
+        "black_piece_shadow": "#020405",
         "status_fill": "#1f2d36",
         "highlight": "#69d5bd",
     },
@@ -84,11 +87,11 @@ THEMES: dict[str, dict[str, str]] = {
         "river": "#f1dfb8",
         "line": "#4f3a21",
         "river_text": "#76512b",
-        "red": "#a91f30",
-        "black": "#342a21",
-        "piece_fill": "#fbf3df",
-        "piece_base": "#c7a66c",
-        "piece_shadow": "#9b8158",
+        "red": "#b43642",
+        "black": "#3b3026",
+        "piece_fill": "#fff9e9",
+        "piece_base": "#d7bd84",
+        "piece_shadow": "#ad9668",
         "status_fill": "#fbf3df",
         "highlight": "#2e7565",
     },
@@ -278,34 +281,35 @@ def _draw_piece(
     x, y = pos
     cx = left + x * cell
     cy = top + y * cell
-    radius = int(cell * 0.39)
+    radius = int(cell * 0.38)
     bbox = (cx - radius, cy - radius, cx + radius, cy + radius)
-    shadow = (bbox[0] + 4 * scale, bbox[1] + 7 * scale, bbox[2] + 4 * scale, bbox[3] + 7 * scale)
-    draw.ellipse(shadow, fill=_blend_hex(colors["piece_shadow"], "#000000", 0.28))
+    color = piece_color(piece)
+    variant = "red" if color == RED else "black"
+    fill = colors.get(f"{variant}_piece_fill", colors["piece_fill"])
+    base = colors.get(f"{variant}_piece_base", colors["piece_base"])
+    shadow_color = colors.get(f"{variant}_piece_shadow", colors["piece_shadow"])
+    shadow = (bbox[0] + 3 * scale, bbox[1] + 5 * scale, bbox[2] + 3 * scale, bbox[3] + 5 * scale)
+    draw.ellipse(shadow, fill=_blend_hex(shadow_color, "#000000", 0.20))
 
-    fill = colors["piece_fill"]
-    base = colors["piece_base"]
-    outline = colors["red"] if piece_color(piece) == RED else colors["black"]
+    outline = colors["red"] if color == RED else colors["black"]
     text_color = outline
 
     edge = _blend_hex(colors["board_edge"], outline, 0.24)
-    draw.ellipse(bbox, fill=_blend_hex(base, "#000000", 0.10), outline=edge, width=max(2 * scale, 1))
-    rim = _inset_box(bbox, 3 * scale)
-    draw.ellipse(rim, fill=base, outline=_blend_hex(base, "#ffffff", 0.18), width=max(scale, 1))
+    draw.ellipse(bbox, fill=_blend_hex(base, "#000000", 0.06), outline=edge, width=max(scale, 1))
+    rim = _inset_box(bbox, 2 * scale)
+    draw.ellipse(rim, fill=base, outline=_blend_hex(base, "#ffffff", 0.24), width=max(scale, 1))
     for step in range(9):
-        inset = int((9 + step * 1.8) * scale)
+        inset = int((7 + step * 1.8) * scale)
         ratio = (step + 1) / 9
         tone = _blend_hex(base, fill, ratio)
         draw.ellipse(_inset_box(bbox, inset), fill=tone)
 
-    inner = _inset_box(bbox, 8 * scale)
-    ring = _inset_box(bbox, 15 * scale)
-    seal = _inset_box(bbox, 20 * scale)
-    shine = _inset_box(bbox, 11 * scale)
-    draw.ellipse(inner, outline=outline, width=max(3 * scale, 1))
-    draw.ellipse(ring, outline=_blend_hex(outline, fill, 0.22), width=max(2 * scale, 1))
-    draw.ellipse(seal, outline=_blend_hex(outline, fill, 0.58), width=max(scale, 1))
-    draw.arc(shine, 205, 300, fill=_blend_hex(fill, "#ffffff", 0.54), width=max(2 * scale, 1))
+    inner = _inset_box(bbox, 7 * scale)
+    ring = _inset_box(bbox, 14 * scale)
+    shine = _inset_box(bbox, 10 * scale)
+    draw.ellipse(inner, outline=outline, width=max(2 * scale, 1))
+    draw.ellipse(ring, outline=_blend_hex(outline, fill, 0.34), width=max(scale, 1))
+    draw.arc(shine, 205, 300, fill=_blend_hex(fill, "#ffffff", 0.50), width=max(scale, 1))
     _draw_centered(
         draw,
         (cx, cy - int(0.8 * scale)),

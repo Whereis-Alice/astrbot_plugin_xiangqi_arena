@@ -251,8 +251,8 @@ WEB_HTML = r"""<!doctype html>
     }
 
     body[data-board-theme="dark"] {
-      --red: rgba(228, 64, 82, .74);
-      --black: rgba(64, 55, 45, .72);
+      --red: rgba(255, 96, 119, .84);
+      --black: rgba(242, 224, 196, .88);
       --board-outer: #1b2632;
       --board-outer-edge: #9f7943;
       --board-panel: #23313a;
@@ -263,8 +263,8 @@ WEB_HTML = r"""<!doctype html>
       --board-river: #2b3f43;
       --board-line: #d0a867;
       --board-text: #e5bd77;
-      --piece-fill: #f3e1bd;
-      --piece-base: #a77a4f;
+      --piece-fill: #ead8b8;
+      --piece-base: #ad8754;
       --piece-shadow: rgba(0, 0, 0, .45);
     }
 
@@ -565,8 +565,13 @@ WEB_HTML = r"""<!doctype html>
       opacity: .68;
       transform: translateY(-0.035em);
     }
+    body[data-board-theme="dark"] .piece-text { opacity: .82; }
     .piece.red { color: var(--red); }
     .piece.black { color: var(--black); }
+    body[data-board-theme="dark"] .piece.black {
+      background:
+        radial-gradient(circle at 32% 26%, #4e5b52 0 20%, #2d3430 54%, #6f5c3d 100%);
+    }
     .piece.dim { opacity: .68; }
 
     .side {
